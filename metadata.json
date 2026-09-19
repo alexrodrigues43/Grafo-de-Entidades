@@ -1,0 +1,6 @@
+{
+  "name": "Semântico Graph Studio",
+  "description": "Plataforma Semântico Graph Studio para extração neural de relações e grafos de conhecimento semânticos (powered by OpenNRE e Gemini para Semântico SEO).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

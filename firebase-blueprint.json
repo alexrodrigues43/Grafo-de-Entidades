@@ -1,0 +1,61 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User account document containing subscription status, plan, role, and usage metrics.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Authentication UID"
+        },
+        "email": {
+          "type": "string",
+          "description": "User email address"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "User full name or display name"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "client"],
+          "description": "User permission role"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "pending", "blocked", "expired"],
+          "description": "Subscription approval status"
+        },
+        "plan": {
+          "type": "string",
+          "enum": ["trial", "monthly", "annual", "lifetime"],
+          "description": "Assigned subscription tier"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of account creation"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Administrative notes (payment proofs, PIX details, etc.)"
+        },
+        "usageCount": {
+          "type": "number",
+          "description": "Total tool executions performed by user"
+        }
+      },
+      "required": ["uid", "email", "role", "status", "plan"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Collection of user profiles keyed by user auth UID"
+    },
+    "/test/connection": {
+      "schema": "UserProfile",
+      "description": "Diagnostic connection probe"
+    }
+  }
+}

@@ -1,0 +1,75 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSuperAdmin() {
+      return isSignedIn() &&
+        request.auth.token.email != null &&
+        request.auth.token.email.lower() == 'alexrodrigues43@gmail.com';
+    }
+
+    function isAdmin() {
+      return isSuperAdmin() || (
+        isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+      );
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidUserCreate(userId) {
+      return incoming().uid == userId &&
+        incoming().uid == request.auth.uid &&
+        incoming().email is string &&
+        incoming().email.size() <= 254 &&
+        (incoming().role in ['admin', 'client']) &&
+        (incoming().status in ['active', 'pending', 'blocked', 'expired']) &&
+        (incoming().plan in ['trial', 'monthly', 'annual', 'lifetime']) &&
+        (isSuperAdmin() || (incoming().role == 'client' && incoming().status == 'pending'));
+    }
+
+    function isClientSafeUpdate() {
+      return incoming().uid == existing().uid &&
+        incoming().email == existing().email &&
+        incoming().role == existing().role &&
+        incoming().status == existing().status &&
+        incoming().plan == existing().plan &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['usageCount', 'displayName', 'updatedAt']);
+    }
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Connection probe for client initialization
+    match /test/connection {
+      allow read: if true;
+    }
+
+    // Users collection for subscription access control
+    match /users/{userId} {
+      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isSignedIn() && isValidId(userId) && request.auth.uid == userId && isValidUserCreate(userId);
+      allow update: if isSignedIn() && isValidId(userId) && (isAdmin() || (request.auth.uid == userId && isClientSafeUpdate()));
+      allow delete: if isAdmin();
+    }
+  }
+}

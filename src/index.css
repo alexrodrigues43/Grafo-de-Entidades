@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-page: #FAF9F6;
+    --bg-surface: #FFFFFF;
+    --color-ink: #08121E;
+    --color-gold: #E5A93C;
+    --color-forest: #1E5E3A;
+    --border-light: #E5E7EB;
+  }
+
+  body {
+    background-color: #FAF9F6;
+    color: #08121E;
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  h1, h2, h3, .font-editorial {
+    font-family: 'Newsreader', Georgia, Cambria, 'Times New Roman', Times, serif;
+  }
+}
+
+/* Subtle Architectural Grid Pattern (as seen in the screenshot) */
+.bg-architectural-grid {
+  background-color: #FAF9F6;
+  background-image: 
+    linear-gradient(to right, rgba(0, 0, 0, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.035) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+/* Dark Section with Faint Dot Matrix (CTA Banner in screenshot) */
+.bg-midnight-matrix {
+  background-color: #08121E;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 0);
+  background-size: 20px 20px;
+}
+
+/* Signature Card with Top Dark Accent Bar */
+.card-editorial-topbar {
+  background-color: #FFFFFF;
+  border: 1px solid #E5E7EB;
+  border-top: 3px solid #08121E;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04);
+}
+
+/* Custom Minimalist Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F1F0EA;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #D5D3CA;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #A8A59C;
+}
