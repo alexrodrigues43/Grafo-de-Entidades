@@ -71,12 +71,18 @@ export const AuthModal: React.FC = () => {
     } catch (err: any) {
       console.error('Auth error:', err);
       let msg = err?.message || 'Ocorreu um erro na autenticação.';
-      if (msg.includes('user-not-found') || msg.includes('wrong-password') || msg.includes('invalid-credential')) {
+      if (msg.includes('operation-not-allowed')) {
+        msg = 'O provedor de E-mail/Senha precisa ser habilitado no Console do Firebase. Como alternativa imediata, use o botão "Continuar com o Google" acima para entrar em 1 clique!';
+      } else if (msg.includes('user-not-found') || msg.includes('wrong-password') || msg.includes('invalid-credential')) {
         msg = 'E-mail ou senha incorretos.';
       } else if (msg.includes('email-already-in-use')) {
         msg = 'Este e-mail já está cadastrado. Tente fazer login.';
       } else if (msg.includes('invalid-email')) {
         msg = 'Por favor, insira um e-mail válido.';
+      } else if (msg.includes('weak-password')) {
+        msg = 'A senha é muito fraca. Escolha uma senha com pelo menos 6 caracteres.';
+      } else if (msg.includes('popup-closed-by-user')) {
+        msg = 'A janela de autenticação do Google foi fechada antes de concluir o login.';
       }
       setError(msg);
     } finally {
