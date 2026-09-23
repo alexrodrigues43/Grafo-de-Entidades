@@ -61,60 +61,51 @@ async function generateWithResilience(
   },
   logPrefix = 'Gemini'
 ): Promise<{ text: string; modelUsed: string }> {
-  // Valid, supported models in order of priority
+  // Valid, supported models in order of priority:
+  // Primary: 'gemini-3.8-flash' (standard per Gemini API guidelines for basic/complex text tasks)
+  // Fallbacks: 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.7-flash'
   const candidateModels = [
-    'gemini-3.7-flash',
+    'gemini-3.8-flash',
+    'gemini-3.1-flash-lite',
     'gemini-flash-latest',
-    'gemini-3.1-flash-lite'
+    'gemini-3.7-flash'
   ];
 
   let lastError: any = null;
 
   for (const modelName of candidateModels) {
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        const config: any = {
-          systemInstruction: params.systemInstruction,
-          temperature: params.temperature ?? 0.1,
-          responseMimeType: params.responseMimeType || 'application/json'
-        };
+    try {
+      const config: any = {
+        systemInstruction: params.systemInstruction,
+        temperature: params.temperature ?? 0.1,
+        responseMimeType: params.responseMimeType || 'application/json'
+      };
 
-        // For Gemini 3 series, set thinkingLevel to LOW to minimize latency (prevents 504 timeouts on long texts)
-        if (modelName.startsWith('gemini-3.')) {
-          config.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
-        }
-
-        const callPromise = client.models.generateContent({
-          model: modelName,
-          contents: params.contents,
-          config
-        });
-
-        // 20s timeout per call to guarantee fast response well below proxy 60s limit
-        const response = await callWithTimeout(callPromise, 20000, `[${logPrefix}] ${modelName}`);
-
-        if (response?.text) {
-          return { text: response.text, modelUsed: modelName };
-        }
-      } catch (err: any) {
-        lastError = err;
-        const msg = err?.message || String(err);
-        console.warn(`[${logPrefix}] Model ${modelName} (attempt ${attempt}) returned: ${msg}`);
-
-        // If 503 (high demand) or 429 (rate limit), pause briefly before retry
-        const isTemporaryBusy =
-          msg.includes('503') ||
-          msg.includes('429') ||
-          msg.includes('high demand') ||
-          msg.includes('UNAVAILABLE') ||
-          msg.includes('RESOURCE_EXHAUSTED');
-
-        if (attempt === 1 && isTemporaryBusy) {
-          await new Promise(resolve => setTimeout(resolve, 300));
-        } else {
-          break; // Move to next model candidate immediately
-        }
+      // Set thinkingLevel per model
+      if (modelName === 'gemini-3.1-flash-lite') {
+        config.thinkingConfig = { thinkingLevel: ThinkingLevel.MINIMAL };
+      } else if (modelName.startsWith('gemini-3.')) {
+        config.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
       }
+
+      const callPromise = client.models.generateContent({
+        model: modelName,
+        contents: params.contents,
+        config
+      });
+
+      // 20s timeout per call to guarantee fast response well below proxy 60s limit
+      const response = await callWithTimeout(callPromise, 20000, `[${logPrefix}] ${modelName}`);
+
+      if (response?.text) {
+        return { text: response.text, modelUsed: modelName };
+      }
+    } catch (err: any) {
+      lastError = err;
+      const msg = err?.message || String(err);
+      console.warn(`[${logPrefix}] Model ${modelName} returned: ${msg}`);
+
+      // Continue to next candidate model immediately without blocking
     }
   }
 
@@ -137,8 +128,127 @@ function safeJsonParse<T = any>(raw: string): T {
   return JSON.parse(cleaned);
 }
 
+// ==========================================
+// NLP PREPROCESSING, ANAPHORA & STRUCTURAL HELPERS
+// ==========================================
+
+/**
+ * Normaliza o texto de entrada para pipelines de NLP/OpenNRE:
+ * 1. Separa títulos (H1/H2/H3, cabeçalhos Markdown e linhas sem pontuação terminal) do corpo dos parágrafos,
+ *    impedindo que o título se funda sintaticamente com o sujeito da primeira oração do parágrafo.
+ * 2. Normaliza pontuações coladas acidentalmente (ex: "rastreador.O Googlebot" -> "rastreador. O Googlebot").
+ * 3. Normaliza itens de listas técnicas ("Termo: explicação") garantindo quebras de linha e delimitação de oração.
+ */
+function preprocessInputText(rawText: string): string {
+  if (!rawText || typeof rawText !== 'string') return '';
+
+  let processed = rawText.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  // 1. Corrigir colagem acidental de ponto com palavra maiúscula (ex: "rastreador.O Googlebot")
+  processed = processed.replace(/([a-z0-9à-ú])\.([A-ZÀ-Ú])/g, '$1. $2');
+
+  // 2. Garantir isolamento e espaçamento de cabeçalhos Markdown (# H1, ## H2, ### H3, etc.)
+  processed = processed.replace(/^(\#{1,6}\s+[^\n]+)$/gm, '\n$1\n');
+
+  // 3. Normalizar itens de lista (bullets, números, travessões)
+  processed = processed.replace(/^([*\-•]|\d+\.)\s+/gm, '\n$1 ');
+
+  // 4. Tratar títulos isolados em linha única que não possuem pontuação terminal
+  // (evita que "A anatomia do Googlebot e a arquitetura..." se funda com "O Googlebot é um sistema...")
+  const lines = processed.split('\n');
+  const normalizedLines: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) {
+      normalizedLines.push('');
+      continue;
+    }
+
+    // Se a linha já é cabeçalho Markdown ou item de lista, mantém
+    if (/^(\#{1,6}|[*\-•]|\d+\.)\s+/.test(line)) {
+      normalizedLines.push(line);
+      continue;
+    }
+
+    const nextLine = lines[i + 1]?.trim();
+    // É uma linha com cara de título (curta/média, sem pontuação terminal, seguida por linha começando com maiúscula)?
+    const isTitleHeading =
+      line.length <= 120 &&
+      /^[A-ZÀ-Ú0-9]/.test(line) &&
+      !/[.!?:;,]$/.test(line) &&
+      Boolean(nextLine && /^[A-ZÀ-Ú0-9]/.test(nextLine));
+
+    if (isTitleHeading) {
+      // Adiciona ponto terminal e quebra de parágrafo dupla para isolar categoricamente a oração
+      normalizedLines.push(line + '.');
+      normalizedLines.push('');
+    } else {
+      normalizedLines.push(line);
+    }
+  }
+
+  return normalizedLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/**
+ * Sanitiza o nome de uma entidade, removendo pontuações terminais e acidentais
+ * (por exemplo: "Análise de logs de acesso:" -> "Análise de logs de acesso")
+ */
+function sanitizeEntityText(rawText: string): string {
+  if (!rawText) return '';
+  return rawText
+    .replace(/^["'“”‘’\(\[\{\-–—\s]+/, '')
+    .replace(/["'“”‘’\)\]\}\-–—:;.,\s]+$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Lista de termos anafóricos, pronomes pessoais e demonstrativos que NUNCA devem
+ * compor uma entidade canônica isolada em um Grafo de Conhecimento.
+ */
+const INVALID_ANAPHORA_REGEX = /^(ele|ela|eles|elas|isso|isto|aquilo|aquele|aquela|aqueles|aquelas|este|esta|estes|estas|esse|essa|esses|essas|esses\s+dados|estes\s+dados|este\s+sistema|esta\s+ferramenta|o\s+mesmo|a\s+mesma|os\s+mesmos|as\s+mesmas|it|they|them|this|these|those|the\s+same|these\s+data|ele\s+roda.*|ela\s+possui.*|ele\s+faz.*)$/i;
+
+function isInvalidAnaphora(text: string): boolean {
+  if (!text) return true;
+  const clean = text.trim();
+  if (clean.length <= 2 && !/^(ia|ai|ml|os|db|ui|ux|ip|re|ti)$/i.test(clean)) return true;
+  return INVALID_ANAPHORA_REGEX.test(clean);
+}
+
+/**
+ * Normaliza predicados fracos ou verbos copulativos vazios (ex: "é", "são", "estabelece relação factual em")
+ * para relações ontológicas precisas
+ */
+function normalizeRelation(slug: string, label: string): { slug: string; label: string } {
+  const cleanSlug = (slug || 'related_to').toLowerCase().trim().replace(/[\s-]+/g, '_');
+  const cleanLabel = (label || slug || 'Related To').trim();
+
+  // Verbos de ligação vazios ou descrições heurísticas cruas
+  if (
+    /^(é|e|são|sao|is|are|ser|foi|foram|was|were)$/i.test(cleanSlug) ||
+    cleanSlug === 'estabelece_relação_factual_em' ||
+    cleanSlug === 'estabelece_relacao_factual_em' ||
+    cleanSlug === 'relacao_factual'
+  ) {
+    return { slug: 'defined_as', label: 'Defined As / Characterized As' };
+  }
+
+  if (/^(tem|possui|possue|have|has|contains)$/i.test(cleanSlug)) {
+    return { slug: 'has_property', label: 'Has Property / Features' };
+  }
+
+  if (/^(pode|permite|possibilita|allows|enables)$/i.test(cleanSlug)) {
+    return { slug: 'enables', label: 'Enables / Allows' };
+  }
+
+  return { slug: cleanSlug, label: cleanLabel };
+}
+
 // Fallback Heuristic Relation Extractor for offline / missing key resilience
-function fallbackExtract(text: string, taxonomy: string) {
+function fallbackExtract(rawText: string, taxonomy: string) {
+  const text = preprocessInputText(rawText);
   const entities: Array<{
     id: string;
     text: string;
@@ -173,10 +283,11 @@ function fallbackExtract(text: string, taxonomy: string) {
   const capitalizedRegex = /\b([A-ZÀ-Ú][a-zà-ú0-9]+(?:\s+[A-ZÀ-Ú][a-zà-ú0-9]+)*)\b/g;
   let match;
   while ((match = capitalizedRegex.exec(text)) !== null) {
-    const rawWord = match[1].trim();
-    // Filter out common Portuguese/English sentence starters or stop words
+    const rawWord = sanitizeEntityText(match[1].trim());
+    // Filter out stop words, anaphoras, and pronouns
     if (
       rawWord.length < 3 ||
+      isInvalidAnaphora(rawWord) ||
       /^(O|A|Os|As|Um|Uma|Uns|Umas|No|Na|Nos|Nas|Em|De|Do|Da|Dos|Das|Por|Para|Com|The|A|An|In|On|At|For|To|From|With|By|And|Or|But|When|While|Where|How|What|Why|Este|Esta|Esse|Essa|Aquele|Aquela)$/i.test(
         rawWord
       )
@@ -198,7 +309,7 @@ function fallbackExtract(text: string, taxonomy: string) {
         inferredType = 'Location';
         if (/Brasil/i.test(rawWord)) wikidataId = 'Q155';
         if (/São Paulo/i.test(rawWord)) wikidataId = 'Q174';
-      } else if (/(?:Python|React|PyTorch|TensorFlow|BERT|RoBERTa|Cypher|Neo4j|SQL|GraphML|JSON|OpenNRE|LLM|GPT)/i.test(rawWord)) {
+      } else if (/(?:Python|React|PyTorch|TensorFlow|BERT|RoBERTa|Cypher|Neo4j|SQL|GraphML|JSON|OpenNRE|LLM|GPT|Googlebot)/i.test(rawWord)) {
         inferredType = 'Technology';
         if (/Python/i.test(rawWord)) wikidataId = 'Q28865';
         if (/React/i.test(rawWord)) wikidataId = 'Q25167772';
@@ -531,18 +642,21 @@ app.post('/api/extract', requireAuth, async (req: Request, res: Response): Promi
       return;
     }
 
+    // NLP Structural Preprocessing: separates headings from paragraph bodies, normalizes bullet lines and punctuation
+    const cleanedText = preprocessInputText(text);
+
     const client = getGeminiClient();
 
     if (!client) {
       // Offline fallback mode if API key is not yet set
-      const fallback = fallbackExtract(text, taxonomy);
+      const fallback = fallbackExtract(cleanedText, taxonomy);
       const executionTimeMs = Date.now() - startTime;
       const filteredRelations = fallback.relations.filter(r => r.confidence >= confidenceThreshold);
 
       res.json({
         entities: fallback.entities,
         relations: filteredRelations,
-        rawText: text,
+        rawText: cleanedText,
         taxonomy,
         executionTimeMs,
         modelUsed: 'heuristic_opennre_engine',
@@ -580,7 +694,7 @@ STRICT ONTOLOGY TYPING CONSTRAINTS (Wikidata-Aligned):
     const systemPrompt = `You are OpenNRE-Engine, an advanced neural relation extraction and ontology-grounded knowledge graph pipeline inspired by THU-NLP's OpenNRE and Wikidata/Wikontic graph construction principles.
 Your task is to thoroughly analyze the provided text (which may be a short paragraph, a long article, a blog post, or a multi-section document), perform Named Entity Recognition (NER), deduplicate aliases into canonical entities, extract edge qualifiers, and extract all meaningful semantic triplets <head, relation, tail> for direct export into Graph Databases (Neo4j Cypher, RDF/Turtle, JSON-LD, GraphML, Gremlin).
 
-CRITICAL DIRECTIVES FOR COMPREHENSIVE EXTRACTION:
+CRITICAL DIRECTIVES FOR ROBUST EXTRACTION:
 1. FULL DOCUMENT COVERAGE:
    - Analyze the ENTIRE document from the opening sentences, throughout all intermediate paragraphs/sections, to the conclusion.
    - Do NOT stop after the first few sentences or focus only on the introduction.
@@ -588,23 +702,42 @@ CRITICAL DIRECTIVES FOR COMPREHENSIVE EXTRACTION:
 
 2. Salient Named Entities & Alias-Aware Deduplication (Wikontic Pattern):
    - Identify entity id (unique, clean alphanumeric slug), exact text (canonical title), and entity type (One of: 'Person', 'Organization', 'Location', 'Product', 'Event', 'Technology', 'Concept', 'Date', 'Country', 'Work', 'Award', 'Biomedical', 'Other').
-   - Identify 'aliases': array of surface forms, abbreviations, nicknames, or pronouns used in the text to refer to this entity (e.g. text: "Sam Altman", aliases: ["Altman", "o CEO da OpenAI"]).
+   - Identify 'aliases': array of surface forms, abbreviations, nicknames, or specific technical terms used in the text to refer to this entity (e.g. text: "Googlebot", aliases: ["crawler do Google", "web crawler"]).
    - Identify 'wikidataId': provide Wikidata Item ID if widely known (e.g. "Q95" for Google, "Q11463" for Python, "Q79016896" for OpenAI, "Q155" for Brazil, etc.).
-   - Estimate start and end character positions in text when available.
+   - Entity Name Purity: NEVER leave colons (":"), semicolons, quotes, or trailing punctuation inside an entity name (e.g. write "Análise de logs de acesso", NEVER "Análise de logs de acesso:").
    - Assign realistic entity confidence score (between 0.70 and 1.00).
 
 3. Semantic Relations & Edge Qualifiers:
    - Head Entity (Subject) and Tail Entity (Object).
-   - Relation Slug: concise, standardized snake_case identifier (e.g. "founded_by", "headquarters_location", "developed_by", "member_of", "author_of", "uses_technology", "integrates_with", "subclass_of", "criticizes", "proposes_concept", "acquired_by").
-   - Relation Label: clean human-friendly title (e.g. "Founded By", "Author Of", "Uses Technology").
+   - Relation Slug: concise, standardized snake_case identifier (e.g. "founded_by", "headquarters_location", "developed_by", "member_of", "author_of", "uses_technology", "integrates_with", "subclass_of", "enables", "monitors", "analyzes", "executes_on", "used_for", "proposes_concept", "acquired_by").
+   - Relation Label: clean human-friendly title (e.g. "Founded By", "Author Of", "Uses Technology", "Enables", "Monitors").
    - Relation Taxonomy: "${taxonomy}". ${taxonomyGuidance}
    - Confidence: realistic relation extraction confidence score (0.00 to 1.00).
    - Evidence: the exact sentence or clause from the text proving this relation.
    - Direction: "DIRECTED" (standard head -> tail).
    - Qualifiers: Extract contextual qualifiers for the edge whenever mentioned in text (e.g. time/year of event [P585], specific job role [P3831], condition, geographic context, stated_in, proportion/percentage). Format: array of { key: string, value: string, wikidataProperty?: string }.
 
-4. Cleanliness & Graph Topology:
-   - Disambiguate coreferenced entities into one canonical entity (do not create separate duplicate nodes for "Google" and "Google LLC").
+4. MANDATORY STRUCTURAL ISOLATION (HEADINGS VS. PARAGRAPHS):
+   - NEVER merge a section title, H1, or H2 (e.g. "A anatomia do Googlebot e a arquitetura de um web crawler moderno") with the opening sentence of the subsequent paragraph.
+   - A title/heading establishes topic context; it is NOT the grammatical subject of the verb in the following paragraph!
+   - If the text has: "A anatomia do Googlebot e a arquitetura de um web crawler moderno. O Googlebot é um sistema...", the Subject is "Googlebot" (Technology/Software), NOT the truncated title string.
+
+5. MANDATORY COREFERENCE & ANAPHORA RESOLUTION (ZERO PRONOUN POLICY):
+   - NEVER output personal pronouns, demonstrative pronouns, or vague generic noun phrases as Entity names, Head entities, or Tail entities.
+   - STRICTLY FORBIDDEN ENTITIES include: "Ele", "Ela", "Eles", "Elas", "Ele roda...", "Isso", "Este", "Esta", "Esses", "Essas", "Esses dados", "Este sistema", "A ferramenta", "O crawler", "O mesmo", "It", "They", "This", "These data".
+   - You MUST resolve any anaphoric pronoun to its true canonical referent from the surrounding paragraph context:
+     * Example 1: If the text says "Ele roda simultaneamente em milhares de máquinas...", RESOLVE "Ele" -> Head: "Googlebot", Relation: "executes_on", Tail: "Máquinas distribuídas globalmente".
+     * Example 2: If the text says "Esses dados são usados para alimentar índices de buscadores...", RESOLVE "Esses dados" -> Head: "Dados de requisição HTTP e conteúdo web baixado", Relation: "used_for", Tail: "Índices de buscadores e modelos de IA".
+   - If a pronoun cannot be resolved with certainty to a known canonical entity, DO NOT extract a low-quality triplet.
+
+6. STRUCTURED LISTS & HIGH-VALUE PREDICATES (NO WEAK COPULA VERBS):
+   - When parsing list items or definitions with colons (e.g. "Análise de logs de acesso: é possível isolar as requisições do Googlebot..."):
+     * Extract the head entity cleanly without punctuation: "Análise de logs de acesso".
+     * NEVER use weak copula verbs ("é", "são", "is", "are", "estabelece relação factual em", "tem") as relation predicates.
+     * Formulate functional semantic relations: <Análise de logs de acesso, enables / monitors, Requisições do Googlebot>.
+
+7. Cleanliness & Graph Topology:
+   - Disambiguate coreferenced entities into one canonical entity (do not create separate duplicate nodes for "Google" e "Google LLC").
    - Connect the graph meaningfully with both micro-relations (within sentences) and macro-relations (thematic / document-level links).
    - Respect strict Domain and Range typing constraints.
    - Return valid JSON matching the specified JSON schema strictly.`;
@@ -612,7 +745,7 @@ CRITICAL DIRECTIVES FOR COMPREHENSIVE EXTRACTION:
     const { text: responseText, modelUsed: successfulModel } = await generateWithResilience(
       client,
       {
-        contents: `Perform exhaustive OpenNRE Named Entity, Alias Normalization & Relation Extraction with Edge Qualifiers on the following text:\n\n"""\n${text}\n"""`,
+        contents: `Perform exhaustive OpenNRE Named Entity, Alias Normalization & Relation Extraction with Edge Qualifiers on the following text:\n\n"""\n${cleanedText}\n"""`,
         systemInstruction: systemPrompt,
         temperature: 0.1,
         responseMimeType: 'application/json'
@@ -633,71 +766,91 @@ CRITICAL DIRECTIVES FOR COMPREHENSIVE EXTRACTION:
 
     // Ensure entity IDs and sanitize
     const entityMap = new Map<string, any>();
-    const sanitizedEntities = rawEntities.map((e, idx) => {
-      const rawText = String(e.text || `Entity_${idx + 1}`).trim();
-      const id = String(e.id || rawText.toLowerCase().replace(/[^\w]/g, '_') || `e_${idx + 1}`);
+    const sanitizedEntities: any[] = [];
+
+    rawEntities.forEach((e, idx) => {
+      const cleanedEntityName = sanitizeEntityText(String(e.text || `Entity_${idx + 1}`));
+      // Exclude invalid anaphoras, pronouns and empty strings
+      if (!cleanedEntityName || isInvalidAnaphora(cleanedEntityName)) {
+        return;
+      }
+
+      const id = String(e.id || cleanedEntityName.toLowerCase().replace(/[^\w]/g, '_') || `e_${idx + 1}`);
       const type = String(e.type || 'Concept');
       const conf = typeof e.confidence === 'number' ? Math.min(1, Math.max(0, e.confidence)) : 0.95;
-      const aliases = Array.isArray(e.aliases) ? e.aliases.map((a: any) => String(a).trim()).filter(Boolean) : [rawText];
+      const aliases = Array.isArray(e.aliases)
+        ? e.aliases
+            .map((a: any) => sanitizeEntityText(String(a)))
+            .filter((a: string) => a && !isInvalidAnaphora(a))
+        : [cleanedEntityName];
       const wikidataId = e.wikidataId && typeof e.wikidataId === 'string' ? e.wikidataId.trim() : undefined;
 
       const ent = {
         id,
-        text: rawText,
+        text: cleanedEntityName,
         type,
         confidence: conf,
-        aliases,
+        aliases: aliases.length > 0 ? aliases : [cleanedEntityName],
         wikidataId,
         startPos: typeof e.startPos === 'number' ? e.startPos : undefined,
         endPos: typeof e.endPos === 'number' ? e.endPos : undefined
       };
+
+      sanitizedEntities.push(ent);
       entityMap.set(id, ent);
-      entityMap.set(rawText.toLowerCase(), ent);
-      if (aliases.length > 0) {
-        aliases.forEach((alias: string) => {
-          entityMap.set(alias.toLowerCase(), ent);
-        });
-      }
-      return ent;
+      entityMap.set(cleanedEntityName.toLowerCase(), ent);
+      aliases.forEach((alias: string) => {
+        entityMap.set(alias.toLowerCase(), ent);
+      });
     });
 
-    // Ensure relations have matching entities
+    // Ensure relations have matching entities and normalize weak predicates
     const sanitizedRelations = rawRelations
       .map((r, idx) => {
-        const headText = String(r.headText || r.head || '').trim();
-        const tailText = String(r.tailText || r.tail || '').trim();
-        let headId = String(r.headId || headText.toLowerCase().replace(/[^\w]/g, '_'));
-        let tailId = String(r.tailId || tailText.toLowerCase().replace(/[^\w]/g, '_'));
+        const rawHeadText = sanitizeEntityText(String(r.headText || r.head || ''));
+        const rawTailText = sanitizeEntityText(String(r.tailText || r.tail || ''));
+
+        // Filter out relations with pronouns or empty entities
+        if (!rawHeadText || !rawTailText || isInvalidAnaphora(rawHeadText) || isInvalidAnaphora(rawTailText)) {
+          return null;
+        }
+
+        let headId = String(r.headId || rawHeadText.toLowerCase().replace(/[^\w]/g, '_'));
+        let tailId = String(r.tailId || rawTailText.toLowerCase().replace(/[^\w]/g, '_'));
 
         // Match with entity map or create fallback entity
-        let headEnt = entityMap.get(headId) || entityMap.get(headText.toLowerCase());
-        if (!headEnt && headText) {
+        let headEnt = entityMap.get(headId) || entityMap.get(rawHeadText.toLowerCase());
+        if (!headEnt && rawHeadText) {
           headEnt = {
             id: headId,
-            text: headText,
+            text: rawHeadText,
             type: r.headType || 'Other',
             confidence: 0.9,
-            aliases: [headText]
+            aliases: [rawHeadText]
           };
           sanitizedEntities.push(headEnt);
           entityMap.set(headId, headEnt);
         }
 
-        let tailEnt = entityMap.get(tailId) || entityMap.get(tailText.toLowerCase());
-        if (!tailEnt && tailText) {
+        let tailEnt = entityMap.get(tailId) || entityMap.get(rawTailText.toLowerCase());
+        if (!tailEnt && rawTailText) {
           tailEnt = {
             id: tailId,
-            text: tailText,
+            text: rawTailText,
             type: r.tailType || 'Other',
             confidence: 0.9,
-            aliases: [tailText]
+            aliases: [rawTailText]
           };
           sanitizedEntities.push(tailEnt);
           entityMap.set(tailId, tailEnt);
         }
 
-        const relation = String(r.relation || 'related_to').trim().toLowerCase().replace(/[\s-]+/g, '_');
-        const relationLabel = String(r.relationLabel || r.relation || 'Related To').trim();
+        // Normalize weak relations (e.g. "é", "são", "estabelece relação factual em") into ontological relations
+        const normalizedRel = normalizeRelation(
+          String(r.relation || 'related_to'),
+          String(r.relationLabel || r.relation || 'Related To')
+        );
+
         const confidence = typeof r.confidence === 'number' ? Math.min(1, Math.max(0, r.confidence)) : 0.92;
         const evidence = String(r.evidence || '').trim();
 
@@ -716,13 +869,13 @@ CRITICAL DIRECTIVES FOR COMPREHENSIVE EXTRACTION:
         return {
           id: String(r.id || `rel_${idx + 1}`),
           headId: headEnt ? headEnt.id : headId,
-          headText: headEnt ? headEnt.text : headText,
+          headText: headEnt ? headEnt.text : rawHeadText,
           headType: headEnt ? headEnt.type : (r.headType || 'Other'),
           tailId: tailEnt ? tailEnt.id : tailId,
-          tailText: tailEnt ? tailEnt.text : tailText,
+          tailText: tailEnt ? tailEnt.text : rawTailText,
           tailType: tailEnt ? tailEnt.type : (r.tailType || 'Other'),
-          relation,
-          relationLabel,
+          relation: normalizedRel.slug,
+          relationLabel: normalizedRel.label,
           taxonomy: r.taxonomy || taxonomy,
           confidence,
           evidence,
@@ -730,7 +883,7 @@ CRITICAL DIRECTIVES FOR COMPREHENSIVE EXTRACTION:
           qualifiers: qualifiers && qualifiers.length > 0 ? qualifiers : undefined
         };
       })
-      .filter(r => r.headId && r.tailId && r.confidence >= confidenceThreshold);
+      .filter((r): r is NonNullable<typeof r> => r !== null && Boolean(r.headId && r.tailId && r.confidence >= confidenceThreshold));
 
     const executionTimeMs = Date.now() - startTime;
     const totalEntities = sanitizedEntities.length;
@@ -746,7 +899,7 @@ CRITICAL DIRECTIVES FOR COMPREHENSIVE EXTRACTION:
     res.json({
       entities: sanitizedEntities,
       relations: sanitizedRelations,
-      rawText: text,
+      rawText: cleanedText,
       taxonomy,
       executionTimeMs,
       modelUsed: `${successfulModel} (OpenNRE Pipeline)`,
@@ -761,14 +914,15 @@ CRITICAL DIRECTIVES FOR COMPREHENSIVE EXTRACTION:
     console.error('Error in /api/extract:', error);
     // Fallback on error to ensure app never breaks for the user
     const text = req.body.text || '';
+    const cleanedText = preprocessInputText(text);
     const taxonomy = req.body.taxonomy || 'wiki80';
-    const fallback = fallbackExtract(text, taxonomy);
+    const fallback = fallbackExtract(cleanedText, taxonomy);
     const executionTimeMs = Date.now() - startTime;
 
     res.json({
       entities: fallback.entities,
       relations: fallback.relations,
-      rawText: text,
+      rawText: cleanedText,
       taxonomy,
       executionTimeMs,
       modelUsed: 'heuristic_opennre_fallback',
@@ -881,10 +1035,11 @@ app.post('/api/analyze-text-connectivity', requireAuth, async (req: Request, res
     });
   }
 
+  const cleanedText = preprocessInputText(text);
   const client = getGeminiClient();
 
   if (!client) {
-    const fallback = fallbackTextOptimization(text, entities, relations);
+    const fallback = fallbackTextOptimization(cleanedText, entities, relations);
     return res.json({
       ...fallback,
       executionTimeMs: Date.now() - startTime,
@@ -898,6 +1053,11 @@ app.post('/api/analyze-text-connectivity', requireAuth, async (req: Request, res
 Your goal is to inspect a given source text, its extracted Entities, and its extracted Relation Triplets, and generate a comprehensive, highly actionable Diagnostic & Optimization Report.
 
 The user's goal is to improve the source text so that all entities present in it have stronger, more explicit, and higher-confidence semantic connections (<Head, Relation, Tail>).
+
+IMPORTANT LINGUISTIC DIRECTIVES:
+- Do NOT consider pronouns or demonstratives ("ele", "ela", "eles", "esses dados", "este sistema") as isolated entities; instead, identify when anaphora and ambiguous pronouns are preventing the true canonical entity (e.g. "Googlebot") from being connected.
+- Emphasize replacing vague copula verbs ("é", "são", "estabelece relação factual em") with active, unambiguous relational verbs (e.g., "enables", "monitors", "executes_on", "subclass_of", "develops").
+- Distinguish between section titles / headings and the body paragraph to avoid improper syntactic joining.
 
 You must analyze:
 1. Connectivity Score (0-100) and Level (Low, Moderate, Good, High) reflecting graph density and relational clarity.
@@ -946,7 +1106,7 @@ Return ONLY valid JSON matching this schema:
 
     const userContent = `Source Text:
 """
-${text}
+${cleanedText}
 """
 
 Extracted Entities (${entities.length}):
