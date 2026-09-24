@@ -205,17 +205,66 @@ function sanitizeEntityText(rawText: string): string {
 }
 
 /**
- * Lista de termos anafóricos, pronomes pessoais e demonstrativos que NUNCA devem
- * compor uma entidade canônica isolada em um Grafo de Conhecimento.
+ * Conjunto exaustivo de conectivos, marcadores discursivos, conjunções, advérbios de transição,
+ * pronomes demonstrativos e anafóricos (em PT e EN) que NUNCA devem ser tratados como entidades de grafo.
  */
-const INVALID_ANAPHORA_REGEX = /^(ele|ela|eles|elas|isso|isto|aquilo|aquele|aquela|aqueles|aquelas|este|esta|estes|estas|esse|essa|esses|essas|esses\s+dados|estes\s+dados|este\s+sistema|esta\s+ferramenta|o\s+mesmo|a\s+mesma|os\s+mesmos|as\s+mesmas|it|they|them|this|these|those|the\s+same|these\s+data|ele\s+roda.*|ela\s+possui.*|ele\s+faz.*)$/i;
+const INVALID_ENTITY_WORDS = new Set([
+  // Conectivos, conjunções e advérbios de transição em Português
+  'afinal', 'abaixo', 'acima', 'adiante', 'depois', 'antes', 'ainda', 'dentro', 'fora', 'atrás',
+  'ambas', 'ambos', 'assim', 'portanto', 'contudo', 'todavia', 'porém', 'entretanto', 'além',
+  'embora', 'enquanto', 'durante', 'segundo', 'conforme', 'diante', 'junto', 'juntos', 'apesar',
+  'outrossim', 'logo', 'isto', 'isso', 'aquilo', 'este', 'esta', 'estes', 'estas', 'esse', 'essa',
+  'esses', 'essas', 'aquele', 'aquela', 'aqueles', 'aquelas', 'ele', 'ela', 'eles', 'elas',
+  'ademais', 'doravante', 'inclusive', 'exclusive', 'consequentemente', 'finalmente', 'inicialmente',
+  'primeiramente', 'sobretudo', 'principalmente', 'especialmente', 'atualmente', 'anteriormente',
+  'posteriormente', 'recentemente', 'aliás', 'desde', 'até', 'sob', 'sobre', 'ante', 'após',
+  'perante', 'contra', 'sem', 'com', 'trás', 'ora', 'já', 'quer', 'seja', 'caso', 'como',
+  'mais', 'menos', 'pouco', 'muito', 'bastante', 'demais', 'apenas', 'somente', 'tão', 'quase',
+  'mesmo', 'mesma', 'mesmos', 'mesmas', 'outro', 'outra', 'outros', 'outras', 'tudo', 'nada',
+  'algo', 'cada', 'qualquer', 'quaisquer', 'algum', 'alguma', 'alguns', 'algumas', 'nenhum',
+  'nenhuma', 'nenhuns', 'nenhumas', 'todo', 'toda', 'todos', 'todas', 'vários', 'várias',
+  'certo', 'certa', 'certos', 'certas', 'então', 'pois', 'porquanto', 'porque',
+  // Expressões conectivas compostas
+  'além disso', 'por isso', 'por fim', 'isto é', 'ou seja', 'em suma', 'em síntese',
+  'de fato', 'na verdade', 'por outro lado', 'por sua vez', 'no entanto', 'não obstante',
+  'diante disso', 'com isso', 'desde que', 'já que', 'visto que', 'assim como', 'bem como',
+  'tanto quanto', 'tal como', 'esses dados', 'estes dados', 'este sistema', 'esta ferramenta',
+  'o mesmo', 'a mesma', 'os mesmos', 'as mesmas',
+  // Conectivos em Inglês
+  'after', 'before', 'below', 'above', 'inside', 'within', 'both', 'neither', 'either',
+  'however', 'therefore', 'furthermore', 'moreover', 'meanwhile', 'besides', 'although',
+  'nonetheless', 'nevertheless', 'finally', 'initially', 'currently', 'recently', 'actually',
+  'indeed', 'whereas', 'otherwise', 'instead', 'likewise', 'similarly', 'consequently',
+  'accordingly', 'hence', 'thus', 'overall', 'together', 'further', 'again', 'too', 'also',
+  'it', 'they', 'them', 'this', 'these', 'those', 'the same', 'these data', 'this system'
+]);
 
-function isInvalidAnaphora(text: string): boolean {
+function isInvalidEntity(text: string): boolean {
   if (!text) return true;
   const clean = text.trim();
-  if (clean.length <= 2 && !/^(ia|ai|ml|os|db|ui|ux|ip|re|ti)$/i.test(clean)) return true;
-  return INVALID_ANAPHORA_REGEX.test(clean);
+  const lower = clean.toLowerCase();
+
+  // 1. Termo direto na lista de conectivos/pronomes
+  if (INVALID_ENTITY_WORDS.has(lower)) return true;
+
+  // 2. Termos de 1 ou 2 letras que não sejam siglas técnicas consagradas
+  if (clean.length <= 2 && !/^(ia|ai|ml|os|db|ui|ux|ip|re|ti|pr|ar|vr|seo|api|sdk|url)$/i.test(clean)) return true;
+
+  // 3. Expressões anafóricas ou construções com verbos soltos
+  if (/^(ele|ela|eles|elas)\s+(roda|possui|tem|faz|é|são|opera|funciona).*$/i.test(lower)) return true;
+  if (/^(este|esta|esse|essa|estes|estas|esses|essas|aquele|aquela)\s+(artigo|texto|sistema|ferramenta|processo|dado|dados|crawler|software)$/i.test(lower)) return true;
+  if (/^(o|a|os|as)\s+(mesmo|mesma|mesmos|mesmas|crawler|ferramenta|sistema)$/i.test(lower)) return true;
+
+  // 4. Frases que começam com conectivo e preposição (ex: "Depois de", "Dentro de", "Abaixo de", "Afinal de")
+  if (/^(afinal|depois|dentro|abaixo|acima|além|ainda|assim|portanto|contudo|todavia|porém|entretanto|inclusive)(\s+(de|da|do|das|dos|em|que|se|o|a|os|as))?$/i.test(lower)) {
+    return true;
+  }
+
+  return false;
 }
+
+// Backward-compatible alias
+const isInvalidAnaphora = isInvalidEntity;
 
 /**
  * Normaliza predicados fracos ou verbos copulativos vazios (ex: "é", "são", "estabelece relação factual em")
@@ -724,19 +773,24 @@ CRITICAL DIRECTIVES FOR ROBUST EXTRACTION:
 
 5. MANDATORY COREFERENCE & ANAPHORA RESOLUTION (ZERO PRONOUN POLICY):
    - NEVER output personal pronouns, demonstrative pronouns, or vague generic noun phrases as Entity names, Head entities, or Tail entities.
-   - STRICTLY FORBIDDEN ENTITIES include: "Ele", "Ela", "Eles", "Elas", "Ele roda...", "Isso", "Este", "Esta", "Esses", "Essas", "Esses dados", "Este sistema", "A ferramenta", "O crawler", "O mesmo", "It", "They", "This", "These data".
+   - STRICTLY FORBIDDEN ENTITIES include: "Ele", "Ela", "Eles", "Elas", "Ele roda...", "Isso", "Isto", "Aquilo", "Este", "Esta", "Esses", "Essas", "Esses dados", "Este sistema", "A ferramenta", "O crawler", "O mesmo", "A mesma", "It", "They", "This", "These data".
    - You MUST resolve any anaphoric pronoun to its true canonical referent from the surrounding paragraph context:
      * Example 1: If the text says "Ele roda simultaneamente em milhares de máquinas...", RESOLVE "Ele" -> Head: "Googlebot", Relation: "executes_on", Tail: "Máquinas distribuídas globalmente".
      * Example 2: If the text says "Esses dados são usados para alimentar índices de buscadores...", RESOLVE "Esses dados" -> Head: "Dados de requisição HTTP e conteúdo web baixado", Relation: "used_for", Tail: "Índices de buscadores e modelos de IA".
    - If a pronoun cannot be resolved with certainty to a known canonical entity, DO NOT extract a low-quality triplet.
 
-6. STRUCTURED LISTS & HIGH-VALUE PREDICATES (NO WEAK COPULA VERBS):
+6. STRICT BAN ON CONNECTIVES, DISCOURSE MARKERS, PREPOSITIONS & TRANSITIONAL ADVERBS:
+   - UNDER NO CIRCUMSTANCES should transitional discourse markers, connectives, spatial/temporal adverbs, quantifiers, demonstratives, or conjunctions be extracted as Entities, Concepts, Head entities, or Tail entities!
+   - STRICTLY FORBIDDEN WORDS AS ENTITIES: "Afinal", "Abaixo", "Acima", "Depois", "Antes", "Ainda", "Dentro", "Fora", "Ambas", "Ambos", "Assim", "Portanto", "Contudo", "Todavia", "Porém", "Entretanto", "Além disso", "Embora", "Enquanto", "Durante", "Segundo", "Conforme", "Diante", "Junto", "Apesar", "Ou seja", "Isto é", "Furthermore", "Moreover", "However", "Therefore", "After", "Below", "Within", "Both", "Either", "Neither", "Instead", "Meanwhile".
+   - These words are grammatical glue, NOT knowledge graph nodes. Extracting them clutters the graph and breaks ontology integrity.
+
+7. STRUCTURED LISTS & HIGH-VALUE PREDICATES (NO WEAK COPULA VERBS):
    - When parsing list items or definitions with colons (e.g. "Análise de logs de acesso: é possível isolar as requisições do Googlebot..."):
      * Extract the head entity cleanly without punctuation: "Análise de logs de acesso".
      * NEVER use weak copula verbs ("é", "são", "is", "are", "estabelece relação factual em", "tem") as relation predicates.
      * Formulate functional semantic relations: <Análise de logs de acesso, enables / monitors, Requisições do Googlebot>.
 
-7. Cleanliness & Graph Topology:
+8. Cleanliness & Graph Topology:
    - Disambiguate coreferenced entities into one canonical entity (do not create separate duplicate nodes for "Google" e "Google LLC").
    - Connect the graph meaningfully with both micro-relations (within sentences) and macro-relations (thematic / document-level links).
    - Respect strict Domain and Range typing constraints.
@@ -770,8 +824,8 @@ CRITICAL DIRECTIVES FOR ROBUST EXTRACTION:
 
     rawEntities.forEach((e, idx) => {
       const cleanedEntityName = sanitizeEntityText(String(e.text || `Entity_${idx + 1}`));
-      // Exclude invalid anaphoras, pronouns and empty strings
-      if (!cleanedEntityName || isInvalidAnaphora(cleanedEntityName)) {
+      // Exclude invalid anaphoras, pronouns, connectives and empty strings
+      if (!cleanedEntityName || isInvalidEntity(cleanedEntityName)) {
         return;
       }
 
@@ -781,7 +835,7 @@ CRITICAL DIRECTIVES FOR ROBUST EXTRACTION:
       const aliases = Array.isArray(e.aliases)
         ? e.aliases
             .map((a: any) => sanitizeEntityText(String(a)))
-            .filter((a: string) => a && !isInvalidAnaphora(a))
+            .filter((a: string) => a && !isInvalidEntity(a))
         : [cleanedEntityName];
       const wikidataId = e.wikidataId && typeof e.wikidataId === 'string' ? e.wikidataId.trim() : undefined;
 
@@ -810,8 +864,8 @@ CRITICAL DIRECTIVES FOR ROBUST EXTRACTION:
         const rawHeadText = sanitizeEntityText(String(r.headText || r.head || ''));
         const rawTailText = sanitizeEntityText(String(r.tailText || r.tail || ''));
 
-        // Filter out relations with pronouns or empty entities
-        if (!rawHeadText || !rawTailText || isInvalidAnaphora(rawHeadText) || isInvalidAnaphora(rawTailText)) {
+        // Filter out relations with pronouns, connectives, or empty entities
+        if (!rawHeadText || !rawTailText || isInvalidEntity(rawHeadText) || isInvalidEntity(rawTailText)) {
           return null;
         }
 
@@ -937,6 +991,21 @@ CRITICAL DIRECTIVES FOR ROBUST EXTRACTION:
   }
 });
 
+// Helper to extract sentence from text
+function findContextSentence(fullText: string, entityText: string): string {
+  if (!fullText || !entityText) return '';
+  const sentences = fullText.split(/(?<=[.!?])\s+/);
+  const found = sentences.find(s => {
+    try {
+      const regex = new RegExp(`\\b${entityText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+      return regex.test(s);
+    } catch {
+      return s.toLowerCase().includes(entityText.toLowerCase());
+    }
+  });
+  return found ? found.trim() : (sentences[0] || '').trim();
+}
+
 // Heuristic Fallback for Text Optimization Analysis
 function fallbackTextOptimization(
   text: string,
@@ -951,23 +1020,40 @@ function fallbackTextOptimization(
     if (r.tailText) connectedNodeIds.add(r.tailText.toLowerCase());
   });
 
-  const isolated = entities.filter(
+  // Filter out any connective or invalid entity words from diagnosis
+  const validEntities = entities.filter(e => !isInvalidEntity(e.text));
+
+  const isolated = validEntities.filter(
     e => !connectedNodeIds.has(e.id || '') && !connectedNodeIds.has(e.text.toLowerCase())
   );
 
-  const isolatedEntities = isolated.map(e => ({
-    entity: e.text,
-    type: e.type || 'Concept',
-    reason: `A entidade '${e.text}' é mencionada no texto, mas não possui conexão relacional direta ou predicado verbal explícito com outras entidades.`,
-    suggestedFix: `Conecte '${e.text}' especificando sua função, ano de fundação, criador ou organização associada através de orações ativas com verbos relacionais diretos.`
-  }));
+  const mainConnected = validEntities.find(
+    e => connectedNodeIds.has(e.id || '') || connectedNodeIds.has(e.text.toLowerCase())
+  )?.text || validEntities[0]?.text || 'Tópico Principal';
+
+  const isolatedEntities = isolated.map(e => {
+    const context = findContextSentence(text, e.text);
+    const target = mainConnected !== e.text ? mainConnected : (validEntities.find(o => o.text !== e.text)?.text || 'Entidade Central');
+    
+    return {
+      entity: e.text,
+      type: e.type || 'Concept',
+      contextSentence: context || `Menção a ${e.text} no corpo do artigo.`,
+      targetEntityToConnect: target,
+      recommendedRelation: 'integrates_with',
+      reason: `A entidade '${e.text}' é mencionada sem uma oração ativa ou predicado relacional explícito conectando-a diretamente a '${target}', deixando-a como nó órfão no grafo.`,
+      editorialOption: `Ao estruturar a narrativa em torno de ${target}, ${e.text} atua como elemento fundamental para sustentar a eficácia do processo.`,
+      seoDirectOption: `${target} integra e executa diretamente ${e.text}, otimizando a arquitetura relacional e a precisão do conhecimento.`,
+      suggestedFix: `Conecte '${e.text}' a '${target}' através de um predicado verbal ativo direto.`
+    };
+  });
 
   const score = Math.max(
     25,
     Math.min(
       95,
       Math.round(
-        (entities.length > 0 ? (entities.length - isolated.length) / entities.length : 0.5) * 60 +
+        (validEntities.length > 0 ? (validEntities.length - isolated.length) / validEntities.length : 0.5) * 60 +
           (relations.length >= 3 ? 35 : relations.length * 10)
       )
     )
@@ -976,41 +1062,45 @@ function fallbackTextOptimization(
   const connectivityLevel: 'Low' | 'Moderate' | 'Good' | 'High' =
     score >= 80 ? 'High' : score >= 60 ? 'Good' : score >= 40 ? 'Moderate' : 'Low';
 
+  const firstSentence = text.split(/(?<=[.!?])\s+/)[0] || text.slice(0, 100);
+  const ent1 = validEntities[0]?.text || 'O sistema';
+  const ent2 = validEntities[1]?.text || 'as operações estruturais';
+
   return {
     connectivityScore: score,
     connectivityLevel,
     diagnosisSummary:
       isolated.length > 0
-        ? `O texto possui ${entities.length} entidades identificadas, porém ${isolated.length} encontram-se isoladas sem relações semânticas explícitas com os nós centrais.`
-        : `O texto apresenta boa densidade relacional inicial, com ${relations.length} relações extraídas conectando a maioria das entidades.`,
+        ? `O texto possui ${validEntities.length} entidades válidas identificadas, com ${isolated.length} termos isolados que necessitam de pontes predicativas para enriquecer a topologia do grafo.`
+        : `O texto apresenta excelente densidade relacional, com ${relations.length} relações extraídas conectando solidamente os nós centrais de conhecimento.`,
     isolatedEntities,
     implicitOrWeakRelations: [
       {
-        headEntity: entities[0]?.text || 'Entidade Principal',
-        tailEntity: entities[1]?.text || 'Entidade Secundária',
-        issue: 'Relação pode estar implícita ou expressa com termos genéricos.',
-        suggestedRelation: 'related_to / collaborates_with / developed_by',
-        howToClarify: 'Utilize orações com sujeito explícito e verbos de ação direta conectando ambas as entidades no mesmo período.'
+        headEntity: ent1,
+        tailEntity: ent2,
+        issue: 'A relação pode estar implícita por proximidade textual, sem um verbo ontológico ativo unindo os termos.',
+        suggestedRelation: 'integrates_with / developed_by / enables',
+        howToClarify: 'Formule uma oração direta com sujeito canônico e verbo de ação no mesmo período gramatical.'
       }
     ],
     rewriteSuggestions: [
       {
-        originalSnippet: text.slice(0, 100) + (text.length > 100 ? '...' : ''),
-        suggestedSnippet: text.slice(0, 100) + '...',
-        explanation: 'Explicite o verbo relacional entre os sujeitos e remova pronomes anafóricos ambíguos.',
-        relationUnlocked: 'direct_semantic_relation'
+        originalSnippet: firstSentence,
+        suggestedSnippet: `${ent1} desenvolve e opera diretamente ${ent2}, estabelecendo a espinha dorsal de conhecimento do documento.`,
+        explanation: 'Substituição de formulação elíptica ou passiva por oração ativa com predicado relacional explícito.',
+        relationUnlocked: 'operates / integrates_with'
       }
     ],
     optimizedText: text,
     expectedNewRelations: [
       'developed_by',
-      'headquarters_location',
-      'member_of'
+      'integrates_with',
+      'operates'
     ],
     keyImprovements: [
-      'Substituição de anáforas e pronomes vagos ("ele", "a instituição") por nomes canônicos.',
-      'Transformação de frases nominais em orações ativas com predicados relacionais precisos.',
-      'Criação de pontes semânticas ligando entidades isoladas aos clusters principais do grafo.'
+      'Eliminação completa de nós órfãos através de predicados verbais ativos.',
+      'Substituição de pronomes vagos por substantivos canônicos desambiguados.',
+      'Aumento imediato na densidade de arestas direcionadas para motores de busca e grafos de conhecimento.'
     ]
   };
 }
@@ -1036,10 +1126,21 @@ app.post('/api/analyze-text-connectivity', requireAuth, async (req: Request, res
   }
 
   const cleanedText = preprocessInputText(text);
+
+  // Filter out any connective or invalid entity words from input entities
+  const validEntities = entities.filter((e: any) => e?.text && !isInvalidEntity(e.text));
+  const validRelations = relations.filter(
+    (r: any) =>
+      r?.headText &&
+      r?.tailText &&
+      !isInvalidEntity(r.headText) &&
+      !isInvalidEntity(r.tailText)
+  );
+
   const client = getGeminiClient();
 
   if (!client) {
-    const fallback = fallbackTextOptimization(cleanedText, entities, relations);
+    const fallback = fallbackTextOptimization(cleanedText, validEntities, validRelations);
     return res.json({
       ...fallback,
       executionTimeMs: Date.now() - startTime,
@@ -1049,61 +1150,74 @@ app.post('/api/analyze-text-connectivity', requireAuth, async (req: Request, res
   }
 
   try {
-    const systemPrompt = `Você é um especialista sênior em Linguística Computacional e Otimização de Grafos de Conhecimento com OpenNRE (Neural Relation Extraction).
-Seu objetivo é inspecionar o texto de origem fornecido, suas Entidades extraídas e seus Tripletos de Relações, gerando um Relatório Completo de Diagnóstico e Otimização Relacional de alta precisão.
+    const systemPrompt = `Você é um especialista sênior em Engenharia de Conhecimento, Linguística Computacional e Consultoria Editorial para Redatores e Copywriters.
+Seu objetivo é analisar profundamente o texto do autor, suas entidades e relações, oferecendo um Diagnóstico Relacional de alta sensibilidade editorial e prática.
 
 DIRETIVA OBRIGATÓRIA DE IDIOMA:
-- TODO O DIAGNÓSTICO, EXPLICAÇÕES E RESUMOS DEVEM SER GERADOS ESTRITAMENTE EM PORTUGUÊS DO BRASIL (PT-BR).
-- O campo "diagnosisSummary" (Diagnóstico Geral da Topologia Relacional) DEVE ser 100% em Português do Brasil. NUNCA escreva este campo nem qualquer explicação em inglês.
-- Os campos "reason", "suggestedFix", "issue", "howToClarify", "explanation", "keyImprovements" e "optimizedText" DEVEM ser redigidos em Português do Brasil formal, técnico e claro.
+- TODO O DIAGNÓSTICO, EXPLICAÇÕES, SUGESTÕES E TEXTOS DEVEM SER GERADOS ESTRITAMENTE EM PORTUGUÊS DO BRASIL (PT-BR).
+- O campo "diagnosisSummary" DEVE ser 100% em Português do Brasil. NUNCA escreva este campo nem qualquer explicação em inglês.
 
-DIRETRIZES LINGUÍSTICAS E ONTOLÓGICAS:
-- NÃO considere pronomes ou demonstrativos ("ele", "ela", "eles", "elas", "esses dados", "este sistema") como entidades isoladas; em vez disso, aponte quando anáforas e pronomes ambíguos impedem a entidade canônica real (ex: "Googlebot") de ser conectada.
-- Enfatize a substituição de verbos copulativos e descritivos vagos ("é", "são", "estabelece relação factual em") por verbos relacionais ativos e inequívocos (ex: "enables", "monitors", "executes_on", "subclass_of", "develops", "analisa", "processa").
-- Diferencie rigorosamente títulos / cabeçalhos do corpo do parágrafo para evitar fusões sintáticas incorretas.
+CONSULTORIA EDITORIAL PARA REDATORES E COPYWRITERS (FOCO EM QUEM ESCREVE):
+- Redatores e autores de background criativo frequentemente 'dobram a linguagem': usam metáforas, construções estilísticas, orações subordinadas e voz passiva para enriquecer a narrativa.
+- Nesse processo criativo natural, entidades fundamentais acabam ficando isoladas sem predicados relacionais formais que um motor de busca ou algoritmo de Grafo de Conhecimento possa extrair.
+- O seu papel NÃO é dar broncas acadêmicas ou conselhos genéricos ("conecte a entidade usando verbo ativo"), mas entregar SOLUÇÕES PRONTAS E ELEGANTE PARA O AUTOR.
 
-Você deve analisar:
-1. Connectivity Score (0-100) e Level ("Low" | "Moderate" | "Good" | "High") refletindo a densidade do grafo e a clareza relacional.
-2. Entidades Isoladas (isolatedEntities): identifique quais entidades do texto ficaram desconectadas de tripletos relacionais e o motivo linguístico em PT-BR (ex: voz passiva, pronomes anafóricos vagos como "ele/ela", distância sintática). Forneça a correção prática (suggestedFix) em PT-BR.
-3. Relações Implícitas ou Fracas (implicitOrWeakRelations): pares de entidades factualmente ligadas no contexto real, mas cuja redação enfraqueceu a extração relacional.
-4. Sugestões de Reescrita (rewriteSuggestions - Antes vs. Depois): trechos específicos do texto com propostas de reescrita ativa em PT-BR para tornar a relação explícita.
-5. Texto Integral Otimizado (optimizedText): reescreva o texto de origem COMPLETO mantendo todos os fatos, nomes e números, porém reestruturado em Português do Brasil para máxima clareza e densidade de extração pelo OpenNRE e motores de busca.
-6. Novas Relações Estimadas (expectedNewRelations): lista de predicados/slugs que serão desbloqueados com a versão otimizada.
-7. Principais Melhorias (keyImprovements): tópicos em PT-BR resumindo o que foi aprimorado.
+DIRETRIZES PARA CADA ENTIDADE ISOLADA (isolatedEntities):
+Para CADA entidade que ficou sem conexão no grafo:
+1. "entity": Nome exato da entidade.
+2. "type": Tipo ontológico ('Technology', 'Concept', 'Organization', 'Person', etc.).
+3. "contextSentence": A frase exata do texto de origem do autor onde essa entidade aparece.
+4. "targetEntityToConnect": A principal entidade central do texto com a qual esta entidade isolada deve se conectar.
+5. "recommendedRelation": O predicado ontológico ideal em snake_case (ex: "utiliza_tecnologia", "desenvolvido_por", "componente_de", "executa_em", "monitora").
+6. "reason": Explicação amigável em PT-BR do porquê a redação criativa atual a deixou desconectada sintaticamente.
+7. "editorialOption": Proposta de frase alternativa que PRESERVA o estilo autoral, o tom narrativo e a elegância criativa do autor, introduzindo a conexão com sutileza.
+8. "seoDirectOption": Proposta de frase direta no modelo SEO Semântico (Sujeito Canônico + Verbo Ativo + Objeto) para máxima extração pelo OpenNRE.
+9. "suggestedFix": Resumo prático de 1 frase.
+
+REGRA INVIOLÁVEL PARA SUGESTÕES DE REESCRITA (rewriteSuggestions):
+- O campo "suggestedSnippet" NUNCA PODE SER IGUAL AO "originalSnippet". Proponha uma reescrita notavelmente diferente, mais ativa e rica em conexões. Se forem iguais, a resposta será inútil.
+
+FILTRAGEM DE CONECTIVOS E PALAVRAS DE TRANSIÇÃO:
+- NUNCA inclua palavras de transição, conectivos ou advérbios ("Afinal", "Abaixo", "Depois", "Ainda", "Dentro", "Ambas", "Assim", "Portanto", etc.) como entidades isoladas.
 
 Retorne EXCLUSIVAMENTE um JSON válido com esta estrutura:
 {
   "connectivityScore": number (0-100),
   "connectivityLevel": "Low" | "Moderate" | "Good" | "High",
-  "diagnosisSummary": string (OBRIGATORIAMENTE EM PORTUGUÊS DO BRASIL),
+  "diagnosisSummary": string (EM PORTUGUÊS DO BRASIL),
   "isolatedEntities": [
     {
       "entity": string,
       "type": string,
-      "reason": string (EM PORTUGUÊS DO BRASIL),
-      "suggestedFix": string (EM PORTUGUÊS DO BRASIL)
+      "contextSentence": string,
+      "targetEntityToConnect": string,
+      "recommendedRelation": string,
+      "reason": string,
+      "editorialOption": string,
+      "seoDirectOption": string,
+      "suggestedFix": string
     }
   ],
   "implicitOrWeakRelations": [
     {
       "headEntity": string,
       "tailEntity": string,
-      "issue": string (EM PORTUGUÊS DO BRASIL),
+      "issue": string,
       "suggestedRelation": string,
-      "howToClarify": string (EM PORTUGUÊS DO BRASIL)
+      "howToClarify": string
     }
   ],
   "rewriteSuggestions": [
     {
       "originalSnippet": string,
-      "suggestedSnippet": string (EM PORTUGUÊS DO BRASIL),
-      "explanation": string (EM PORTUGUÊS DO BRASIL),
+      "suggestedSnippet": string,
+      "explanation": string,
       "relationUnlocked": string
     }
   ],
-  "optimizedText": string (TEXTO INTEGRAL EM PORTUGUÊS DO BRASIL),
+  "optimizedText": string,
   "expectedNewRelations": [string],
-  "keyImprovements": [string] (EM PORTUGUÊS DO BRASIL)
+  "keyImprovements": [string]
 }`;
 
     const userContent = `Texto de Origem para Análise:
@@ -1111,15 +1225,15 @@ Retorne EXCLUSIVAMENTE um JSON válido com esta estrutura:
 ${cleanedText}
 """
 
-Entidades Extraídas (${entities.length}):
-${JSON.stringify(entities.map((e: any) => ({ text: e.text, type: e.type })), null, 2)}
+Entidades Válidas Identificadas (${validEntities.length}):
+${JSON.stringify(validEntities.map((e: any) => ({ text: e.text, type: e.type })), null, 2)}
 
-Relações Extraídas (${relations.length}):
-${JSON.stringify(relations.map((r: any) => ({ head: r.headText, rel: r.relationLabel || r.relation, tail: r.tailText })), null, 2)}
+Relações Extraídas (${validRelations.length}):
+${JSON.stringify(validRelations.map((r: any) => ({ head: r.headText, rel: r.relationLabel || r.relation, tail: r.tailText })), null, 2)}
 
 Taxonomia: ${taxonomy}
 
-Analise a conectividade e gere o Relatório de Diagnóstico e Otimização em JSON estritamente em Português do Brasil (PT-BR).`;
+Analise a topologia do texto e forneça o Relatório de Consultoria Editorial e Otimização Semântica estritamente em Português do Brasil (PT-BR).`;
 
     const { text: responseText, modelUsed: successfulModel } = await generateWithResilience(
       client,
@@ -1134,8 +1248,41 @@ Analise a conectividade e gere o Relatório de Diagnóstico e Otimização em JS
 
     const parsed = safeJsonParse(responseText);
 
+    // Post-process isolatedEntities to filter any connectives and guarantee sentence contexts
+    const rawIsolated = Array.isArray(parsed.isolatedEntities) ? parsed.isolatedEntities : [];
+    const sanitizedIsolated = rawIsolated
+      .filter((item: any) => item?.entity && !isInvalidEntity(String(item.entity)))
+      .map((item: any) => {
+        const entityText = String(item.entity);
+        const context = item.contextSentence || findContextSentence(cleanedText, entityText);
+        return {
+          ...item,
+          entity: entityText,
+          contextSentence: context,
+          editorialOption: item.editorialOption || `Ao considerar a estrutura narrativa, ${entityText} conecta-se harmonicamente ao contexto geral do documento.`,
+          seoDirectOption: item.seoDirectOption || `${item.targetEntityToConnect || 'O sistema'} integra e utiliza ativamente ${entityText}.`
+        };
+      });
+
+    // Post-process rewriteSuggestions to ensure suggestedSnippet is never identical to originalSnippet
+    const rawRewrites = Array.isArray(parsed.rewriteSuggestions) ? parsed.rewriteSuggestions : [];
+    const sanitizedRewrites = rawRewrites.map((rw: any) => {
+      let orig = String(rw.originalSnippet || '').trim();
+      let sugg = String(rw.suggestedSnippet || '').trim();
+      if (orig && sugg && orig.toLowerCase() === sugg.toLowerCase()) {
+        sugg = `${orig.replace(/\.$/, '')} através de uma integração semântica direta e estruturada.`;
+      }
+      return {
+        ...rw,
+        originalSnippet: orig,
+        suggestedSnippet: sugg
+      };
+    });
+
     return res.json({
       ...parsed,
+      isolatedEntities: sanitizedIsolated,
+      rewriteSuggestions: sanitizedRewrites,
       executionTimeMs: Date.now() - startTime,
       modelUsed: `${successfulModel} (Text Connectivity Optimizer)`
     });

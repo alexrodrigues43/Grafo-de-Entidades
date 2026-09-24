@@ -84,16 +84,23 @@ export interface TaxonomyInfo {
   defaultRelations: TaxonomyRelationDef[];
 }
 
+export interface IsolatedEntityDiagnostic {
+  entity: string;
+  type: string;
+  contextSentence?: string; // Frase original onde a entidade aparece no texto
+  reason: string; // Diagnóstico amigável para redator/copywriter
+  suggestedFix?: string; // Resumo rápido da conexão recomendada
+  targetEntityToConnect?: string; // Entidade central recomendada para conexão
+  recommendedRelation?: string; // Predicado sugerido (ex: utiliza_algoritmo, desenvolvido_por)
+  editorialOption?: string; // Reescrita estilística/criativa (mantém a voz autoral do redator)
+  seoDirectOption?: string; // Reescrita semântica direta (sujeito + verbo ativo + objeto)
+}
+
 export interface TextOptimizationAnalysis {
   connectivityScore: number; // 0 - 100
   connectivityLevel: 'Low' | 'Moderate' | 'Good' | 'High';
   diagnosisSummary: string;
-  isolatedEntities: Array<{
-    entity: string;
-    type: string;
-    reason: string;
-    suggestedFix: string;
-  }>;
+  isolatedEntities: IsolatedEntityDiagnostic[];
   implicitOrWeakRelations: Array<{
     headEntity: string;
     tailEntity: string;

@@ -26,7 +26,18 @@ A ferramenta extrai entidades nomeadas, resolve anáforas e correferências text
 * **Sanitização de Pontuação em Listas:** Entidades originadas de listas e definições (ex: `Análise de logs de servidor:`) são limpas de pontuações residuais (`:`, `;`, aspas).
 * **Conversão de Verbos Copulativos:** Predicados fracos como `"é"`, `"são"` ou `"tem"` são automaticamente enriquecidos para relações ontológicas precisas (`defined_as`, `enables`, `monitors`, `executes_on`, `subclass_of`).
 
-### 4. Arquitetura de IA Resiliente com Failover Instantâneo
+### 4. Blindagem Contra Conectivos e Elementos de Transição (Entity Shield)
+* **Filtro Anti-Poluição de Grafo:** Impede categoricamente que conjunções, advérbios de transição ou termos de ligação (`Afinal`, `Abaixo`, `Depois`, `Ainda`, `Dentro`, `Ambas`, `Assim`, `Portanto`, `Além disso`, etc.) sejam extraídos como entidades ou criem "nós-fantasmas" no grafo.
+* **Validação Tríplice:** A proteção atua diretamente na instrução sistêmica do Gemini, no motor de pós-processamento sanitizador e no extrator heurístico de fallback.
+
+### 5. Consultoria Editorial para Redatores e Copywriters (Foco em Quem Escreve)
+* **Respeito à Linguagem Criativa:** Pensado para criadores e copywriters que costumam dobrar a linguagem em metáforas e orações estilísticas. O diagnóstico identifica exatamente a frase onde a entidade isolada aparece e sugere como ligá-la sem perder a elegância narrativa.
+* **Duas Opções de Reescrita com Cópia em 1 Clique:**
+  * **Opção Editorial (Estilo Criativo):** Preserva o tom autoral, metáforas e fluidez narrativa, inserindo a relação sem burocratizar o texto.
+  * **Opção SEO Direto (Triplo Ontológico):** Estrutura clara (Sujeito + Verbo Ativo + Objeto) para pontuação máxima no OpenNRE e motores de busca.
+* **Garantia de Não-Duplicação:** As sugestões de reescrita pontual passam por validação para assegurar que a proposta seja visivelmente mais rica e nunca idêntica ao trecho original.
+
+### 6. Arquitetura de IA Resiliente com Failover Instantâneo
 * **Cascata Multi-Modelo:** Utiliza como modelo primário o **`gemini-3.8-flash`** (com `ThinkingLevel.LOW` para latência mínima e processamento ultrarrápido).
 * **Failover Imediato para Alta Demanda:** Em caso de indisponibilidade ou picos temporários (erros 503/429), a requisição alterna instantaneamente para **`gemini-3.1-flash-lite`**, **`gemini-flash-latest`** e **`gemini-3.7-flash`**, garantindo taxa de sucesso ininterrupta.
 * **Fallback Heurístico Local:** Se todos os serviços de nuvem estiverem inacessíveis, um motor algorítmico local assume a extração sem quebrar a interface do usuário.

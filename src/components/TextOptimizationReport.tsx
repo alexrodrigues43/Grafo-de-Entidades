@@ -14,7 +14,10 @@ import {
   HelpCircle,
   Lightbulb,
   FileText,
-  Network
+  Network,
+  PenTool,
+  Target,
+  Quote
 } from 'lucide-react';
 
 interface TextOptimizationReportProps {
@@ -37,12 +40,20 @@ export const TextOptimizationReport: React.FC<TextOptimizationReportProps> = ({
   onApplyOptimizedText
 }) => {
   const [copied, setCopied] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'optimized' | 'comparison'>('optimized');
 
   const handleCopy = (textToCopy: string) => {
     navigator.clipboard.writeText(textToCopy);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleCopySnippet = (snippet: string, key: string) => {
+    if (!snippet) return;
+    navigator.clipboard.writeText(snippet);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 2000);
   };
 
   const getScoreColor = (score: number) => {
@@ -279,42 +290,157 @@ export const TextOptimizationReport: React.FC<TextOptimizationReportProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Diagnostics & Rewrite Snippets (7 Cols) */}
         <div className="lg:col-span-7 space-y-6">
-          {/* Isolated Entities Section */}
+          {/* Consultoria Editorial de Entidades Isoladas */}
           {analysis.isolatedEntities.length > 0 && (
-            <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 shadow-2xs space-y-3">
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-md bg-amber-100 text-amber-800 flex items-center justify-center">
-                  <AlertTriangle className="w-3.5 h-3.5" />
-                </div>
-                <h3 className="font-serif text-base font-bold text-[#08121E]">
-                  Entidades Isoladas no Grafo ({analysis.isolatedEntities.length})
-                </h3>
-              </div>
-              <p className="text-xs text-slate-500">
-                Estas entidades foram reconhecidas como termos relevantes, mas o texto não expressa uma ligação direta com as demais:
-              </p>
-
-              <div className="space-y-2.5 pt-1">
-                {analysis.isolatedEntities.map((item, idx) => (
-                  <div key={idx} className="p-3.5 rounded-xl bg-[#FAF9F6] border border-slate-200 space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-[#08121E] flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-[#E5A93C]" />
-                        {item.entity}
-                      </span>
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white text-slate-700 border border-slate-200">
-                        {item.type}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-700">
-                      <strong className="text-[#08121E] font-medium">Motivo:</strong> {item.reason}
-                    </p>
-                    <p className="text-xs text-emerald-950 bg-emerald-50/80 p-2.5 rounded-lg border border-emerald-200 flex items-start gap-1.5">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-[#1E5E3A] shrink-0 mt-0.5" />
-                      <span><strong>Como conectar:</strong> {item.suggestedFix}</span>
+            <div className="bg-white rounded-2xl border border-[#E5E7EB] p-5 shadow-2xs space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-[#E5A93C]/15 text-[#92400E] flex items-center justify-center border border-[#E5A93C]/30 shadow-2xs">
+                    <PenTool className="w-4 h-4 text-[#92400E]" />
+                  </div>
+                  <div>
+                    <h3 className="font-serif text-base font-bold text-[#08121E]">
+                      Consultoria Editorial de Entidades Isoladas ({analysis.isolatedEntities.length})
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Recomendações práticas para criadores: conecte termos centrais mantendo sua voz autoral ou escolhendo SEO direto.
                     </p>
                   </div>
-                ))}
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#E5A93C]/20 text-[#92400E] border border-[#E5A93C]/40 shrink-0">
+                  Visão Redator
+                </span>
+              </div>
+
+              <div className="space-y-4 pt-1">
+                {analysis.isolatedEntities.map((item, idx) => {
+                  const itemKeyEditorial = `iso_ed_${idx}`;
+                  const itemKeySeo = `iso_seo_${idx}`;
+                  return (
+                    <div key={idx} className="p-4 rounded-xl bg-[#FAF9F6] border border-slate-200/90 shadow-2xs space-y-3">
+                      {/* Header: Entity Name + Type + Target Connection */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/60 pb-2.5">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full bg-[#E5A93C]" />
+                          <span className="font-serif text-sm font-bold text-[#08121E]">
+                            {item.entity}
+                          </span>
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white text-slate-700 border border-slate-200 shadow-2xs">
+                            {item.type}
+                          </span>
+                        </div>
+
+                        {item.targetEntityToConnect && (
+                          <div className="flex items-center gap-1.5 text-xs text-slate-600 bg-white px-2.5 py-1 rounded-full border border-slate-200 shadow-2xs">
+                            <span className="text-slate-400 text-[11px]">Ligar a:</span>
+                            <strong className="text-[#08121E] font-semibold">{item.targetEntityToConnect}</strong>
+                            {item.recommendedRelation && (
+                              <span className="font-mono text-[10px] text-[#1E5E3A] bg-[#1E5E3A]/10 px-1.5 py-0.5 rounded-sm">
+                                +{item.recommendedRelation}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Context Sentence in Original Text */}
+                      {item.contextSentence && (
+                        <div className="p-2.5 rounded-lg bg-white border border-slate-200 text-slate-700 space-y-1">
+                          <div className="flex items-center gap-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                            <Quote className="w-3 h-3 text-[#E5A93C]" />
+                            <span>Frase Original no Seu Texto:</span>
+                          </div>
+                          <p className="text-xs italic leading-relaxed text-slate-800">
+                            "{item.contextSentence}"
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Writer's Diagnostic */}
+                      <div className="text-xs text-slate-700 space-y-1 bg-amber-50/50 p-2.5 rounded-lg border border-amber-200/60">
+                        <span className="font-bold text-amber-900 block text-[11px] uppercase tracking-wide">
+                          Por que ficou desconectada?
+                        </span>
+                        <p className="leading-relaxed">
+                          {item.reason}
+                        </p>
+                      </div>
+
+                      {/* Ready-to-use Rewrite Options */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                        {/* Option A: Editorial / Creative */}
+                        <div className="p-3 rounded-xl bg-white border border-[#E5A93C]/30 shadow-2xs space-y-2 flex flex-col justify-between">
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-bold text-[#92400E] flex items-center gap-1">
+                                <Sparkles className="w-3 h-3 text-[#E5A93C]" />
+                                Opção Editorial (Estilo Criativo)
+                              </span>
+                              <span className="text-[9px] font-medium text-slate-400">Preserva sua voz</span>
+                            </div>
+                            <p className="text-xs text-slate-800 leading-relaxed font-sans">
+                              "{item.editorialOption || item.suggestedFix}"
+                            </p>
+                          </div>
+                          <div className="pt-2">
+                            <button
+                              type="button"
+                              onClick={() => handleCopySnippet(item.editorialOption || item.suggestedFix || '', itemKeyEditorial)}
+                              className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#FAF9F6] hover:bg-[#E5A93C]/10 text-[#08121E] text-xs font-semibold border border-slate-200 hover:border-[#E5A93C]/40 transition-colors cursor-pointer"
+                            >
+                              {copiedKey === itemKeyEditorial ? (
+                                <>
+                                  <Check className="w-3.5 h-3.5 text-[#1E5E3A]" />
+                                  <span className="text-[#1E5E3A] font-bold">Copiado!</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3 h-3 text-slate-500" />
+                                  <span>Copiar Frase Editorial</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Option B: Direct Semantic SEO */}
+                        <div className="p-3 rounded-xl bg-white border border-emerald-300 shadow-2xs space-y-2 flex flex-col justify-between">
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-bold text-[#1E5E3A] flex items-center gap-1">
+                                <Target className="w-3 h-3 text-[#1E5E3A]" />
+                                Opção SEO Direto (Triplo Ontológico)
+                              </span>
+                              <span className="text-[9px] font-medium text-emerald-700">Máxima extração</span>
+                            </div>
+                            <p className="text-xs text-slate-800 leading-relaxed font-sans">
+                              "{item.seoDirectOption || item.suggestedFix}"
+                            </p>
+                          </div>
+                          <div className="pt-2">
+                            <button
+                              type="button"
+                              onClick={() => handleCopySnippet(item.seoDirectOption || item.suggestedFix || '', itemKeySeo)}
+                              className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50/50 hover:bg-emerald-100/60 text-[#1E5E3A] text-xs font-semibold border border-emerald-200 transition-colors cursor-pointer"
+                            >
+                              {copiedKey === itemKeySeo ? (
+                                <>
+                                  <Check className="w-3.5 h-3.5 text-[#1E5E3A]" />
+                                  <span className="font-bold">Copiado!</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3 h-3 text-[#1E5E3A]" />
+                                  <span>Copiar Frase SEO Direto</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -326,46 +452,71 @@ export const TextOptimizationReport: React.FC<TextOptimizationReportProps> = ({
                 <div className="w-6 h-6 rounded-md bg-[#FAF9F6] text-[#08121E] border border-slate-200 flex items-center justify-center">
                   <SplitSquareVertical className="w-3.5 h-3.5" />
                 </div>
-                <h3 className="font-serif text-base font-bold text-[#08121E]">
-                  Sugestões Pontuais de Reescrita (Antes vs. Depois)
-                </h3>
+                <div>
+                  <h3 className="font-serif text-base font-bold text-[#08121E]">
+                    Sugestões Pontuais de Reescrita (Antes vs. Depois)
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Propostas ativas com verbos relacionais diretos para desbloquear novas arestas no grafo.
+                  </p>
+                </div>
               </div>
 
               <div className="space-y-3 pt-1">
-                {analysis.rewriteSuggestions.map((item, idx) => (
-                  <div key={idx} className="p-3.5 rounded-xl bg-[#FAF9F6] border border-slate-200 space-y-2">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                      {/* Original */}
-                      <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-slate-800 space-y-1">
-                        <span className="text-[10px] font-bold text-rose-700 uppercase tracking-wide flex items-center gap-1">
-                          ✕ Texto Original
-                        </span>
-                        <p className="text-xs italic leading-relaxed text-slate-700">
-                          "{item.originalSnippet}"
-                        </p>
+                {analysis.rewriteSuggestions.map((item, idx) => {
+                  const rwKey = `rw_${idx}`;
+                  return (
+                    <div key={idx} className="p-3.5 rounded-xl bg-[#FAF9F6] border border-slate-200 space-y-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                        {/* Original */}
+                        <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-slate-800 space-y-1">
+                          <span className="text-[10px] font-bold text-rose-700 uppercase tracking-wide flex items-center gap-1">
+                            ✕ Texto Original
+                          </span>
+                          <p className="text-xs italic leading-relaxed text-slate-700">
+                            "{item.originalSnippet}"
+                          </p>
+                        </div>
+
+                        {/* Suggested */}
+                        <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-slate-800 space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-[#1E5E3A] uppercase tracking-wide flex items-center gap-1">
+                              ✓ Proposta Otimizada
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleCopySnippet(item.suggestedSnippet, rwKey)}
+                              className="inline-flex items-center gap-1 text-[10px] font-bold text-[#1E5E3A] hover:underline cursor-pointer"
+                            >
+                              {copiedKey === rwKey ? (
+                                <span className="text-emerald-800 flex items-center gap-0.5">
+                                  <Check className="w-3 h-3" /> Copiado!
+                                </span>
+                              ) : (
+                                <span className="flex items-center gap-0.5">
+                                  <Copy className="w-3 h-3" /> Copiar Proposta
+                                </span>
+                              )}
+                            </button>
+                          </div>
+                          <p className="text-xs font-medium leading-relaxed text-slate-900">
+                            "{item.suggestedSnippet}"
+                          </p>
+                        </div>
                       </div>
 
-                      {/* Suggested */}
-                      <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-slate-800 space-y-1">
-                        <span className="text-[10px] font-bold text-[#1E5E3A] uppercase tracking-wide flex items-center gap-1">
-                          ✓ Proposta Otimizada
-                        </span>
-                        <p className="text-xs font-medium leading-relaxed text-slate-900">
-                          "{item.suggestedSnippet}"
-                        </p>
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px] text-slate-600">
+                        <span>{item.explanation}</span>
+                        {item.relationUnlocked && (
+                          <span className="px-2 py-0.5 rounded-full bg-[#1E5E3A]/10 text-[#1E5E3A] border border-[#1E5E3A]/20 font-mono font-semibold text-[10px]">
+                            + {item.relationUnlocked}
+                          </span>
+                        )}
                       </div>
                     </div>
-
-                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px] text-slate-600">
-                      <span>{item.explanation}</span>
-                      {item.relationUnlocked && (
-                        <span className="px-2 py-0.5 rounded-full bg-[#1E5E3A]/10 text-[#1E5E3A] border border-[#1E5E3A]/20 font-mono font-semibold text-[10px]">
-                          + {item.relationUnlocked}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
