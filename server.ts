@@ -1049,75 +1049,77 @@ app.post('/api/analyze-text-connectivity', requireAuth, async (req: Request, res
   }
 
   try {
-    const systemPrompt = `You are an expert Computational Linguist and Knowledge Graph Optimization Specialist in OpenNRE (Neural Relation Extraction).
-Your goal is to inspect a given source text, its extracted Entities, and its extracted Relation Triplets, and generate a comprehensive, highly actionable Diagnostic & Optimization Report.
+    const systemPrompt = `Você é um especialista sênior em Linguística Computacional e Otimização de Grafos de Conhecimento com OpenNRE (Neural Relation Extraction).
+Seu objetivo é inspecionar o texto de origem fornecido, suas Entidades extraídas e seus Tripletos de Relações, gerando um Relatório Completo de Diagnóstico e Otimização Relacional de alta precisão.
 
-The user's goal is to improve the source text so that all entities present in it have stronger, more explicit, and higher-confidence semantic connections (<Head, Relation, Tail>).
+DIRETIVA OBRIGATÓRIA DE IDIOMA:
+- TODO O DIAGNÓSTICO, EXPLICAÇÕES E RESUMOS DEVEM SER GERADOS ESTRITAMENTE EM PORTUGUÊS DO BRASIL (PT-BR).
+- O campo "diagnosisSummary" (Diagnóstico Geral da Topologia Relacional) DEVE ser 100% em Português do Brasil. NUNCA escreva este campo nem qualquer explicação em inglês.
+- Os campos "reason", "suggestedFix", "issue", "howToClarify", "explanation", "keyImprovements" e "optimizedText" DEVEM ser redigidos em Português do Brasil formal, técnico e claro.
 
-IMPORTANT LINGUISTIC DIRECTIVES:
-- Do NOT consider pronouns or demonstratives ("ele", "ela", "eles", "esses dados", "este sistema") as isolated entities; instead, identify when anaphora and ambiguous pronouns are preventing the true canonical entity (e.g. "Googlebot") from being connected.
-- Emphasize replacing vague copula verbs ("é", "são", "estabelece relação factual em") with active, unambiguous relational verbs (e.g., "enables", "monitors", "executes_on", "subclass_of", "develops").
-- Distinguish between section titles / headings and the body paragraph to avoid improper syntactic joining.
+DIRETRIZES LINGUÍSTICAS E ONTOLÓGICAS:
+- NÃO considere pronomes ou demonstrativos ("ele", "ela", "eles", "elas", "esses dados", "este sistema") como entidades isoladas; em vez disso, aponte quando anáforas e pronomes ambíguos impedem a entidade canônica real (ex: "Googlebot") de ser conectada.
+- Enfatize a substituição de verbos copulativos e descritivos vagos ("é", "são", "estabelece relação factual em") por verbos relacionais ativos e inequívocos (ex: "enables", "monitors", "executes_on", "subclass_of", "develops", "analisa", "processa").
+- Diferencie rigorosamente títulos / cabeçalhos do corpo do parágrafo para evitar fusões sintáticas incorretas.
 
-You must analyze:
-1. Connectivity Score (0-100) and Level (Low, Moderate, Good, High) reflecting graph density and relational clarity.
-2. Isolated Entities: identify which entities from the text failed to get connected into relation triplets and why (e.g. passive voice, vague pronouns like "it/they/ele/ela", lack of explicit relational verb, distance in text). Provide exact actionable fix.
-3. Implicit or Weak Relations: identify entity pairs that are clearly related in real-world facts or context, but where the phrasing obscured the relation.
-4. Rewrite Suggestions (Antes vs. Depois): provide specific text snippets with proposed rewrites to make relationships explicit.
-5. Optimized Text (Texto Integral Otimizado): rewrite the ENTIRE source text keeping all original facts, core information and language (Portuguese, English, etc.), but restructured for maximum OpenNRE entity-relation extraction clarity.
-6. Expected New Relations: list of new relation slugs that will be extracted once the optimized text is parsed.
-7. Key Improvements: bullet points summarizing what was fixed.
+Você deve analisar:
+1. Connectivity Score (0-100) e Level ("Low" | "Moderate" | "Good" | "High") refletindo a densidade do grafo e a clareza relacional.
+2. Entidades Isoladas (isolatedEntities): identifique quais entidades do texto ficaram desconectadas de tripletos relacionais e o motivo linguístico em PT-BR (ex: voz passiva, pronomes anafóricos vagos como "ele/ela", distância sintática). Forneça a correção prática (suggestedFix) em PT-BR.
+3. Relações Implícitas ou Fracas (implicitOrWeakRelations): pares de entidades factualmente ligadas no contexto real, mas cuja redação enfraqueceu a extração relacional.
+4. Sugestões de Reescrita (rewriteSuggestions - Antes vs. Depois): trechos específicos do texto com propostas de reescrita ativa em PT-BR para tornar a relação explícita.
+5. Texto Integral Otimizado (optimizedText): reescreva o texto de origem COMPLETO mantendo todos os fatos, nomes e números, porém reestruturado em Português do Brasil para máxima clareza e densidade de extração pelo OpenNRE e motores de busca.
+6. Novas Relações Estimadas (expectedNewRelations): lista de predicados/slugs que serão desbloqueados com a versão otimizada.
+7. Principais Melhorias (keyImprovements): tópicos em PT-BR resumindo o que foi aprimorado.
 
-Respond in the language of the source text (if Portuguese, use Portuguese for explanations; if English, use English).
-Return ONLY valid JSON matching this schema:
+Retorne EXCLUSIVAMENTE um JSON válido com esta estrutura:
 {
   "connectivityScore": number (0-100),
   "connectivityLevel": "Low" | "Moderate" | "Good" | "High",
-  "diagnosisSummary": string,
+  "diagnosisSummary": string (OBRIGATORIAMENTE EM PORTUGUÊS DO BRASIL),
   "isolatedEntities": [
     {
       "entity": string,
       "type": string,
-      "reason": string,
-      "suggestedFix": string
+      "reason": string (EM PORTUGUÊS DO BRASIL),
+      "suggestedFix": string (EM PORTUGUÊS DO BRASIL)
     }
   ],
   "implicitOrWeakRelations": [
     {
       "headEntity": string,
       "tailEntity": string,
-      "issue": string,
+      "issue": string (EM PORTUGUÊS DO BRASIL),
       "suggestedRelation": string,
-      "howToClarify": string
+      "howToClarify": string (EM PORTUGUÊS DO BRASIL)
     }
   ],
   "rewriteSuggestions": [
     {
       "originalSnippet": string,
-      "suggestedSnippet": string,
-      "explanation": string,
+      "suggestedSnippet": string (EM PORTUGUÊS DO BRASIL),
+      "explanation": string (EM PORTUGUÊS DO BRASIL),
       "relationUnlocked": string
     }
   ],
-  "optimizedText": string,
+  "optimizedText": string (TEXTO INTEGRAL EM PORTUGUÊS DO BRASIL),
   "expectedNewRelations": [string],
-  "keyImprovements": [string]
+  "keyImprovements": [string] (EM PORTUGUÊS DO BRASIL)
 }`;
 
-    const userContent = `Source Text:
+    const userContent = `Texto de Origem para Análise:
 """
 ${cleanedText}
 """
 
-Extracted Entities (${entities.length}):
+Entidades Extraídas (${entities.length}):
 ${JSON.stringify(entities.map((e: any) => ({ text: e.text, type: e.type })), null, 2)}
 
-Extracted Relations (${relations.length}):
+Relações Extraídas (${relations.length}):
 ${JSON.stringify(relations.map((r: any) => ({ head: r.headText, rel: r.relationLabel || r.relation, tail: r.tailText })), null, 2)}
 
-Taxonomy: ${taxonomy}
+Taxonomia: ${taxonomy}
 
-Analyze the connectivity and provide the diagnostic optimization report in JSON.`;
+Analise a conectividade e gere o Relatório de Diagnóstico e Otimização em JSON estritamente em Português do Brasil (PT-BR).`;
 
     const { text: responseText, modelUsed: successfulModel } = await generateWithResilience(
       client,
