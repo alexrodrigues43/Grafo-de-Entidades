@@ -48,6 +48,11 @@ A ferramenta extrai entidades nomeadas, resolve anáforas e correferências text
 * **Failover Imediato para Alta Demanda:** Em caso de indisponibilidade ou picos temporários (erros 503/429), a requisição alterna instantaneamente para **`gemini-3.1-flash-lite`**, **`gemini-flash-latest`** e **`gemini-3.7-flash`**, garantindo taxa de sucesso ininterrupta.
 * **Fallback Heurístico Local:** Se todos os serviços de nuvem estiverem inacessíveis, um motor algorítmico local assume a extração sem quebrar a interface do usuário.
 
+### 8. Dicionário de Verbos e Substantivos Vazios Negativos (Negative Entity Dictionary)
+* **Eliminação de Verbos como Nós:** O backend conta com um conjunto exaustivo de formas infinitivas e conjugadas dos verbos mais frequentes do PT-BR (`INVALID_VERB_WORDS`). Em grafos ontológicos, verbos são estritamente tratados como predicados (arestas/relações), nunca como entidades.
+* **Detecção de Orações Recortadas:** Expressões capturadas que começam com formas verbais seguidas de conectivo/artigo (ex: *"analisa os dados"*, *"roda no servidor"*, *"permite fazer"*) são automaticamente detectadas via `VERBAL_PHRASE_REGEX` e desconsideradas como entidades.
+* **Filtro de Substantivos Vazios e Adjetivos Soltos:** Termos ultragenéricos desprovidos de especificidade ontológica (`INVALID_GENERIC_NOUNS_AND_ADJECTIVES`, como *"coisa"*, *"modo"*, *"tipo"*, *"fato"*, *"caso"*, *"exemplo"*, *"melhor"*, *"novo"*) são filtrados tanto no pós-processamento quanto instruídos nas diretrizes do Gemini (`Directive 8`).
+
 ---
 
 ## ✨ Funcionalidades Principais

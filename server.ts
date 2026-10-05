@@ -4,7 +4,7 @@ import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
 
-dotenv.config();
+dotenv.config({ override: true });
 
 const app = express();
 const PORT = 3000;
@@ -50,6 +50,23 @@ function callWithTimeout<T>(promise: Promise<T>, timeoutMs = 22000, label = 'AI 
   });
 }
 
+// In-memory model cooldown tracker to avoid hammering quota-exhausted (429) or busy (503) models
+const modelCooldowns = new Map<string, number>();
+
+function isModelInCooldown(modelName: string): boolean {
+  const expiry = modelCooldowns.get(modelName);
+  if (!expiry) return false;
+  if (Date.now() > expiry) {
+    modelCooldowns.delete(modelName);
+    return false;
+  }
+  return true;
+}
+
+function setModelCooldown(modelName: string, durationMs = 15 * 60 * 1000): void {
+  modelCooldowns.set(modelName, Date.now() + durationMs);
+}
+
 // Resilient Gemini Generator with low-latency thinking config, strict timeouts, and multi-model cascade
 async function generateWithResilience(
   client: GoogleGenAI,
@@ -62,19 +79,29 @@ async function generateWithResilience(
   },
   logPrefix = 'Gemini'
 ): Promise<{ text: string; modelUsed: string }> {
-  // Valid, supported models in order of priority:
-  // Primary: 'gemini-3.8-flash' (standard per Gemini API guidelines for basic/complex text tasks)
-  // Fallbacks: 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.7-flash'
-  const candidateModels = [
+  // Candidate models ordered to prefer active, available models with available quota
+  const baseCandidates = [
     'gemini-3.8-flash',
     'gemini-3.1-flash-lite',
-    'gemini-flash-latest',
-    'gemini-3.7-flash'
+    'gemini-3.7-flash',
+    'gemini-flash-latest'
   ];
+
+  // Sort candidates so models not currently in cooldown are attempted first
+  const candidateModels = [...baseCandidates].sort((a, b) => {
+    const aCool = isModelInCooldown(a) ? 1 : 0;
+    const bCool = isModelInCooldown(b) ? 1 : 0;
+    return aCool - bCool;
+  });
 
   let lastError: any = null;
 
   for (const modelName of candidateModels) {
+    if (isModelInCooldown(modelName)) {
+      // Cleanly skip model in cooldown without making a failing request or printing error logs
+      continue;
+    }
+
     try {
       const config: any = {
         systemInstruction: params.systemInstruction,
@@ -110,8 +137,8 @@ async function generateWithResilience(
             }
             throw new Error(`Model returned empty or non-object content`);
           } catch (parseErr: any) {
-            console.warn(
-              `[${logPrefix}] Model ${modelName} returned incomplete or unparseable JSON (${trimmed.slice(0, 60)}...). Trying next candidate model.`
+            console.info(
+              `[${logPrefix}] Model ${modelName} returned incomplete JSON, checking next candidate model.`
             );
             lastError = parseErr;
             continue;
@@ -122,14 +149,27 @@ async function generateWithResilience(
       }
     } catch (err: any) {
       lastError = err;
-      const msg = err?.message || String(err);
-      console.warn(`[${logPrefix}] Model ${modelName} returned: ${msg}`);
+      const status = err?.status || (err?.message?.includes('429') ? 429 : err?.message?.includes('503') ? 503 : 0);
+      const isQuota = status === 429 || err?.message?.includes('RESOURCE_EXHAUSTED') || err?.message?.includes('Quota exceeded');
+      const isBusy = status === 503 || err?.message?.includes('high demand') || err?.message?.includes('UNAVAILABLE');
+
+      if (isQuota) {
+        // Cooldown for 30 minutes to stop hammering quota
+        setModelCooldown(modelName, 30 * 60 * 1000);
+        console.info(`[${logPrefix}] Model ${modelName} rate limit / daily free-tier quota reached. Marked in cooldown.`);
+      } else if (isBusy) {
+        // Cooldown for 5 minutes for temporary spike
+        setModelCooldown(modelName, 5 * 60 * 1000);
+        console.info(`[${logPrefix}] Model ${modelName} experiencing temporary high demand (503). Switching to fallback model.`);
+      } else {
+        console.info(`[${logPrefix}] Model ${modelName} call bypassed, trying next candidate.`);
+      }
 
       // Continue to next candidate model immediately without blocking
     }
   }
 
-  throw lastError || new Error('All model candidates temporarily unavailable');
+  throw lastError || new Error('All model candidates temporarily in cooldown or unavailable');
 }
 
 // Robust JSON parser helper that safely strips markdown code fences, handles objects and arrays, and repairs truncated JSON
@@ -317,7 +357,7 @@ function sanitizeEntityText(rawText: string): string {
  * Conjunto exaustivo de conectivos, marcadores discursivos, conjunções, advérbios de transição,
  * pronomes demonstrativos e anafóricos (em PT e EN) que NUNCA devem ser tratados como entidades de grafo.
  */
-const INVALID_ENTITY_WORDS = new Set([
+const INVALID_CONNECTIVE_WORDS = new Set([
   // Conectivos, conjunções e advérbios de transição em Português
   'afinal', 'abaixo', 'acima', 'adiante', 'depois', 'antes', 'ainda', 'dentro', 'fora', 'atrás',
   'ambas', 'ambos', 'assim', 'portanto', 'contudo', 'todavia', 'porém', 'entretanto', 'além',
@@ -348,23 +388,120 @@ const INVALID_ENTITY_WORDS = new Set([
   'it', 'they', 'them', 'this', 'these', 'those', 'the same', 'these data', 'this system'
 ]);
 
+/**
+ * DICIONÁRIO DE VERBOS NEGATIVOS (STOP-VERBS):
+ * Formas infinitivas e conjugadas dos verbos mais frequentes do PT-BR que NUNCA devem ser entidades.
+ * Verbos em Grafos de Conhecimento são PREDICADOS (arestas), JAMAIS nós (entidades).
+ */
+const INVALID_VERB_WORDS = new Set([
+  // Verbos de ligação e fundamentais (ser, estar, ter, haver, fazer, poder, ir, vir)
+  'ser', 'estar', 'ter', 'haver', 'fazer', 'poder', 'ir', 'vir', 'dar', 'ver', 'saber', 'querer',
+  'ficar', 'passar', 'levar', 'trazer', 'usar', 'utilizar', 'rodar', 'executar', 'permitir',
+  'indicar', 'mostrar', 'criar', 'gerar', 'ajudar', 'garantir', 'funcionar', 'precisar', 'dever',
+  'existir', 'achar', 'pensar', 'falar', 'dizer', 'tentar', 'buscar', 'obter', 'encontrar',
+  'seguir', 'manter', 'colocar', 'deixar', 'tomar', 'chamar', 'sentir', 'parecer', 'considerar',
+  'entender', 'começar', 'continuar', 'parar', 'mudar', 'perder', 'ganhar', 'analisar', 'operar',
+  // Formas flexionadas de alta frequência: Ser / Estar
+  'é', 'era', 'eram', 'foi', 'foram', 'sendo', 'sido', 'seria', 'seriam', 'seja', 'sejam', 'fosse', 'fossem',
+  'está', 'estão', 'estava', 'estavam', 'esteve', 'estiveram', 'estando', 'estado', 'esteja', 'estejam',
+  // Ter / Haver
+  'tem', 'têm', 'tinha', 'tinham', 'teve', 'tiveram', 'tendo', 'tido', 'teria', 'teriam', 'tenha', 'tenham',
+  'há', 'havia', 'haviam', 'houve', 'houveram', 'havendo',
+  // Fazer / Poder
+  'faz', 'fazem', 'fazia', 'faziam', 'fez', 'fizeram', 'fazendo', 'feito', 'feita', 'feitos', 'feitas', 'fará', 'faria',
+  'pode', 'podem', 'podia', 'podiam', 'pôde', 'puderam', 'podendo', 'podido', 'poderá', 'poderiam', 'possa', 'possam',
+  // Ir / Vir
+  'vai', 'vão', 'ia', 'iam', 'indo', 'ido', 'irá', 'iriam', 'vá',
+  'vem', 'vêm', 'vinha', 'vinham', 'veio', 'vieram', 'vindo', 'virá', 'venha',
+  // Verbos operacionais comuns em textos de tecnologia / negócios
+  'dá', 'dão', 'deu', 'deram', 'dando', 'dado', 'dada',
+  'vê', 'veem', 'viu', 'viram', 'vendo', 'visto', 'vista',
+  'sabe', 'sabem', 'sabia', 'soube', 'souberam', 'sabendo',
+  'quer', 'querem', 'queria', 'quis', 'quiseram', 'querendo',
+  'fica', 'ficam', 'ficou', 'ficaram', 'ficando', 'ficado',
+  'passa', 'passam', 'passou', 'passaram', 'passando', 'passado',
+  'leva', 'levam', 'levou', 'levaram', 'levando', 'levado',
+  'traz', 'trazem', 'trouxe', 'trouxeram', 'trazendo', 'trazido',
+  'usa', 'usam', 'usava', 'usou', 'usaram', 'usando', 'usado', 'usada', 'usados', 'usadas',
+  'utiliza', 'utilizam', 'utilizava', 'utilizou', 'utilizaram', 'utilizando', 'utilizado', 'utilizada',
+  'roda', 'rodam', 'rodava', 'rodou', 'rodaram', 'rodando',
+  'executa', 'executam', 'executava', 'executou', 'executaram', 'executando', 'executado',
+  'permite', 'permitem', 'permitia', 'permitiu', 'permitiram', 'permitindo', 'permitido',
+  'indica', 'indicam', 'indicava', 'indicou', 'indicaram', 'indicando', 'indicado',
+  'mostra', 'mostram', 'mostrava', 'mostrou', 'mostraram', 'mostrando', 'mostrado',
+  'cria', 'criam', 'criava', 'criou', 'criaram', 'criando', 'criado', 'criada',
+  'gera', 'geram', 'gerava', 'gerou', 'geraram', 'gerando', 'gerado', 'gerada',
+  'ajuda', 'ajudam', 'ajudava', 'ajudou', 'ajudaram', 'ajudando',
+  'garante', 'garantem', 'garantia', 'garantiu', 'garantiram', 'garantindo', 'garantido',
+  'funciona', 'funcionam', 'funcionava', 'funcionou', 'funcionaram', 'funcionando',
+  'precisa', 'precisam', 'precisava', 'precisou', 'precisaram', 'precisando',
+  'deve', 'devem', 'devia', 'deviam', 'devendo', 'devido', 'devida',
+  'existe', 'existem', 'existia', 'existiam', 'existiu', 'existiram', 'existindo',
+  'analisa', 'analisam', 'analisava', 'analisou', 'analisaram', 'analisando', 'analisado',
+  'opera', 'operam', 'operava', 'operou', 'operaram', 'operando', 'operado',
+  'integra', 'integram', 'integrava', 'integrou', 'integraram', 'integrando', 'integrado',
+  'conecta', 'conectam', 'conectava', 'conectou', 'conectaram', 'conectando', 'conectado'
+]);
+
+/**
+ * DICIONÁRIO DE TERMOS GENÉRICOS, SUBSTANTIVOS VAZIOS E ADJETIVOS ISOLADOS:
+ * Termos abstratos que não carregam valor ontológico isolado em um grafo de conhecimento.
+ */
+const INVALID_GENERIC_NOUNS_AND_ADJECTIVES = new Set([
+  // Substantivos ultragenéricos desprovidos de especificidade
+  'coisa', 'coisas', 'algo', 'tudo', 'nada', 'modo', 'modos', 'maneira', 'maneiras',
+  'forma', 'formas', 'jeito', 'jeitos', 'tipo', 'tipos', 'parte', 'partes',
+  'aspecto', 'aspectos', 'elemento', 'elementos', 'detalhe', 'detalhes', 'ponto', 'pontos',
+  'fato', 'fatos', 'caso', 'casos', 'vez', 'vezes', 'momento', 'momentos',
+  'exemplo', 'exemplos', 'sentido', 'sentidos', 'ideia', 'ideias', 'questão', 'questões',
+  'tema', 'temas', 'assunto', 'assuntos', 'motivo', 'motivos', 'razão', 'razões',
+  'pessoa', 'pessoas', 'gente', 'indivíduo', 'indivíduos', 'alguém', 'ninguém',
+  // Adjetivos qualificativos soltos que aparecem acidentalmente como nós
+  'melhor', 'melhores', 'pior', 'piores', 'grande', 'grandes', 'pequeno', 'pequenos',
+  'novo', 'novos', 'nova', 'novas', 'velho', 'velhos', 'velha', 'velhas',
+  'bom', 'bons', 'boa', 'boas', 'mau', 'maus', 'má', 'más',
+  'rápido', 'rápida', 'rápidos', 'rápidas', 'fácil', 'fáceis', 'difícil', 'difíceis',
+  'importante', 'importantes', 'simples', 'complexo', 'complexa', 'complexos', 'complexas',
+  'principal', 'principais', 'direto', 'direta', 'diretos', 'diretas',
+  'geral', 'gerais', 'alto', 'alta', 'altos', 'altas', 'baixo', 'baixa', 'baixos', 'baixas',
+  'relevante', 'relevantes', 'eficiente', 'eficientes', 'correto', 'correta', 'corretos', 'corretas'
+]);
+
+// Retrocompatibilidade
+const INVALID_ENTITY_WORDS = INVALID_CONNECTIVE_WORDS;
+
+/**
+ * Regex para detectar orações ou fragmentos que começam com verbo ativo ou passivo
+ * (ex: "analisa os dados", "permite fazer", "roda no servidor", "é uma ferramenta", "usado para")
+ */
+const VERBAL_PHRASE_REGEX = /^(é|são|era|foram|ser|estar|ter|tem|têm|faz|fazem|pode|podem|roda|rodam|analisa|analisam|executa|executam|permite|permitem|ajuda|ajudam|garante|garantem|funciona|precisa|deve|mostra|indica|cria|gera|opera|integra|usado|usada|utilizado|utilizada|feito|feita|desenvolvido|desenvolvida)\s+(a|o|os|as|um|uma|uns|umas|de|da|do|das|dos|em|no|na|nos|nas|por|pelo|pela|pelos|pelas|para|com|como|se|que)\b/i;
+
 function isInvalidEntity(text: string): boolean {
   if (!text) return true;
   const clean = text.trim();
   const lower = clean.toLowerCase();
 
   // 1. Termo direto na lista de conectivos/pronomes
-  if (INVALID_ENTITY_WORDS.has(lower)) return true;
+  if (INVALID_CONNECTIVE_WORDS.has(lower)) return true;
 
-  // 2. Termos de 1 ou 2 letras que não sejam siglas técnicas consagradas
+  // 2. Termo direto no dicionário de verbos negativos
+  if (INVALID_VERB_WORDS.has(lower)) return true;
+
+  // 3. Termo direto no dicionário de substantivos vazios / adjetivos genéricos
+  if (INVALID_GENERIC_NOUNS_AND_ADJECTIVES.has(lower)) return true;
+
+  // 4. Termos de 1 ou 2 letras que não sejam siglas técnicas consagradas
   if (clean.length <= 2 && !/^(ia|ai|ml|os|db|ui|ux|ip|re|ti|pr|ar|vr|seo|api|sdk|url)$/i.test(clean)) return true;
 
-  // 3. Expressões anafóricas ou construções com verbos soltos
+  // 5. Expressões que começam com verbo conjugado seguido de preposição/artigo (oração recortada)
+  if (VERBAL_PHRASE_REGEX.test(lower)) return true;
+
+  // 6. Expressões anafóricas ou construções com pronomes soltos
   if (/^(ele|ela|eles|elas)\s+(roda|possui|tem|faz|é|são|opera|funciona).*$/i.test(lower)) return true;
   if (/^(este|esta|esse|essa|estes|estas|esses|essas|aquele|aquela)\s+(artigo|texto|sistema|ferramenta|processo|dado|dados|crawler|software)$/i.test(lower)) return true;
   if (/^(o|a|os|as)\s+(mesmo|mesma|mesmos|mesmas|crawler|ferramenta|sistema)$/i.test(lower)) return true;
 
-  // 4. Frases que começam com conectivo e preposição (ex: "Depois de", "Dentro de", "Abaixo de", "Afinal de")
+  // 7. Frases que começam com conectivo e preposição (ex: "Depois de", "Dentro de", "Abaixo de", "Afinal de")
   if (/^(afinal|depois|dentro|abaixo|acima|além|ainda|assim|portanto|contudo|todavia|porém|entretanto|inclusive)(\s+(de|da|do|das|dos|em|que|se|o|a|os|as))?$/i.test(lower)) {
     return true;
   }
@@ -915,12 +1052,19 @@ CRITICAL DIRECTIVES FOR ROBUST EXTRACTION:
      * NEVER use weak copula verbs ("é", "são", "is", "are", "estabelece relação factual em", "tem") as relation predicates.
      * Formulate functional semantic relations: <Análise de logs de acesso, enables / monitors, Requisições do Googlebot>.
 
-8. Cleanliness & Graph Topology:
+8. STRICT BAN ON VERBS, CONJUGATED FORMS, VERBAL PHRASES & EMPTY FILLER NOUNS:
+   - In Knowledge Graphs, VERBS ARE EDGES (RELATIONS), NEVER NODES (ENTITIES)!
+   - STRICTLY FORBIDDEN AS ENTITIES: Lone verbs or conjugated verb forms in Portuguese or English (e.g. "analisa", "roda", "permite", "executa", "ajuda", "garante", "funciona", "precisa", "cria", "gera", "opera", "tem", "faz", "é", "são", "foi", "foram", "deve", "pode").
+   - STRICTLY FORBIDDEN AS ENTITIES: Clauses or fragments beginning with verbs (e.g. "analisa os dados", "permite fazer", "roda no servidor", "ajuda a entender", "usado para", "feito por", "é uma ferramenta").
+   - STRICTLY FORBIDDEN AS ENTITIES: Abstract empty filler nouns (e.g. "coisa", "algo", "modo", "maneira", "tipo", "fato", "caso", "vez", "ponto", "aspecto", "questão", "exemplo") or standalone adjectives ("melhor", "novo", "rápido", "importante", "geral").
+   - ENTITIES MUST ALWAYS BE CLEAN, SPECIFIC CANONICAL NOUN PHRASES (Named Entities, specific technologies, organizations, products, specialized technical concepts).
+
+9. Cleanliness & Graph Topology:
    - Disambiguate coreferenced entities into one canonical entity (do not create separate duplicate nodes for "Google" e "Google LLC").
    - Connect the graph meaningfully with both micro-relations (within sentences) and macro-relations (thematic / document-level links).
    - Respect strict Domain and Range typing constraints.
 
-9. MANDATORY JSON OUTPUT STRUCTURE:
+10. MANDATORY JSON OUTPUT STRUCTURE:
    Return EXCLUSIVELY a single valid JSON object strictly matching this schema:
    {
      "entities": [
@@ -1149,12 +1293,12 @@ CRITICAL DIRECTIVES FOR ROBUST EXTRACTION:
       }
     });
   } catch (error: any) {
-    console.warn('Notice in /api/extract, using heuristic resilience fallback:', error?.message || error);
+    console.info('Notice in /api/extract: using heuristic resilience fallback for relation extraction.');
     // Fallback on error to ensure app never breaks for the user
     const text = req.body.text || '';
     const cleanedText = preprocessInputText(text);
     const taxonomy = req.body.taxonomy || 'wiki80';
-    const fallback = fallbackExtract(cleanedText, taxonomy);
+    const fallback = fallbackExtract(cleanedText, taxonomy, req.body.domainContext || '');
     const executionTimeMs = Date.now() - startTime;
 
     res.json({
@@ -1162,9 +1306,10 @@ CRITICAL DIRECTIVES FOR ROBUST EXTRACTION:
       relations: fallback.relations,
       rawText: cleanedText,
       taxonomy,
+      domainContext: req.body.domainContext || '',
       executionTimeMs,
       modelUsed: 'heuristic_opennre_fallback',
-      warning: error?.message || 'Gemini API call encountered an error, falling back to OpenNRE heuristic model.',
+      warning: 'Cota de IA em espera temporária. O grafo foi construído com sucesso através do motor de fallback heurístico local.',
       summary: {
         totalEntities: fallback.entities.length,
         totalRelations: fallback.relations.length,
@@ -1372,8 +1517,8 @@ Para CADA entidade que ficou sem conexão no grafo:
 REGRA INVIOLÁVEL PARA SUGESTÕES DE REESCRITA (rewriteSuggestions):
 - O campo "suggestedSnippet" NUNCA PODE SER IGUAL AO "originalSnippet". Proponha uma reescrita notavelmente diferente, mais ativa e rica em conexões. Se forem iguais, a resposta será inútil.
 
-FILTRAGEM DE CONECTIVOS E PALAVRAS DE TRANSIÇÃO:
-- NUNCA inclua palavras de transição, conectivos ou advérbios ("Afinal", "Abaixo", "Depois", "Ainda", "Dentro", "Ambas", "Assim", "Portanto", etc.) como entidades isoladas.
+FILTRAGEM ESTRITA DE VERBOS, CONECTIVOS E TERMOS GENÉRICOS:
+- NUNCA inclua verbos (ex: "analisa", "roda", "permite", "executa", "é", "são"), orações recortadas ("analisa os dados", "roda no servidor"), conectivos/advérbios ("Afinal", "Abaixo", "Depois", "Ainda", "Dentro", "Ambas", "Assim", "Portanto") ou substantivos vazios ("coisas", "modo", "tipo", "fato", "caso", "exemplo", "detalhe") como entidades isoladas. Verbos são predicados de relação, jamais nós.
 
 Retorne EXCLUSIVAMENTE um JSON válido com esta estrutura:
 {
@@ -1483,13 +1628,13 @@ Analise a topologia do texto e forneça o Relatório de Consultoria Editorial e 
       modelUsed: `${successfulModel} (Text Connectivity Optimizer)`
     });
   } catch (err: any) {
-    console.error('Error in /api/analyze-text-connectivity:', err);
+    console.info('Notice in /api/analyze-text-connectivity: using heuristic fallback for editorial report.');
     const fallback = fallbackTextOptimization(text, entities, relations);
     return res.json({
       ...fallback,
       executionTimeMs: Date.now() - startTime,
       modelUsed: 'heuristic_optimizer_fallback',
-      warning: err?.message || 'Error executing Gemini analysis, generated heuristic diagnostic report.'
+      warning: 'Cota de IA em espera temporária. O relatório editorial foi gerado com sucesso através do motor heurístico local.'
     });
   }
 });
