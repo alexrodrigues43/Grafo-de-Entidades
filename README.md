@@ -37,7 +37,13 @@ A ferramenta extrai entidades nomeadas, resolve anáforas e correferências text
   * **Opção SEO Direto (Triplo Ontológico):** Estrutura clara (Sujeito + Verbo Ativo + Objeto) para pontuação máxima no OpenNRE e motores de busca.
 * **Garantia de Não-Duplicação:** As sugestões de reescrita pontual passam por validação para assegurar que a proposta seja visivelmente mais rica e nunca idêntica ao trecho original.
 
-### 6. Arquitetura de IA Resiliente com Failover Instantâneo
+### 6. Trava de Análise por Contexto Temático Livre (Domain Context Anchoring)
+* **Campo Livre & Condição Obrigatória:** O usuário agora informa livremente sobre o que seu texto trata (ex: *"SEO para E-commerce"*, *"Inteligência Artificial & LLMs"*). A análise é **estritamente travada** caso o campo esteja vazio, disparando alerta visual e sonoro de que o contexto é indispensável para gerar o grafo.
+* **Eliminação de Entidades Desconexas:** O Gemini recebe o contexto temático como diretiva primária de ancoragem (`Direct Directive 0`), suprimindo verbos disfarçados de nós, conceitos aleatórios ou termos fora do domínio.
+* **Chips de Sugestão Rápida:** Oferece atalhos de preenchimento em 1 clique com os principais nichos de mercado para agilizar testes.
+* **Bloqueio no Backend e Frontend:** O endpoint `/api/extract` e `/api/analyze-text-connectivity` rejeitam requisições sem contexto, e o botão na interface sinaliza o bloqueio imediatamente com rolagem e foco automático no campo.
+
+### 7. Arquitetura de IA Resiliente com Failover Instantâneo
 * **Cascata Multi-Modelo:** Utiliza como modelo primário o **`gemini-3.8-flash`** (com `ThinkingLevel.LOW` para latência mínima e processamento ultrarrápido).
 * **Failover Imediato para Alta Demanda:** Em caso de indisponibilidade ou picos temporários (erros 503/429), a requisição alterna instantaneamente para **`gemini-3.1-flash-lite`**, **`gemini-flash-latest`** e **`gemini-3.7-flash`**, garantindo taxa de sucesso ininterrupta.
 * **Fallback Heurístico Local:** Se todos os serviços de nuvem estiverem inacessíveis, um motor algorítmico local assume a extração sem quebrar a interface do usuário.

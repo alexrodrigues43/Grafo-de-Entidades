@@ -54,6 +54,7 @@ export interface ExtractionResponse {
   relations: RelationTriplet[];
   rawText: string;
   taxonomy: string;
+  domainContext?: string;
   executionTimeMs: number;
   modelUsed: string;
   summary: {

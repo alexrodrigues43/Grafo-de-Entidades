@@ -20,7 +20,12 @@ import {
   AlertCircle,
   Info,
   ShieldCheck,
-  Gauge
+  Gauge,
+  Compass,
+  X,
+  Lock,
+  Unlock,
+  Target
 } from 'lucide-react';
 
 export const IDEAL_WORDS_LIMIT = 6000;
@@ -30,6 +35,8 @@ export const MAX_SAFE_CHARS = 100000;
 interface TextInputSectionProps {
   text: string;
   onChangeText: (text: string) => void;
+  domainContext: string;
+  onChangeDomainContext: (domainContext: string) => void;
   taxonomy: TaxonomyType;
   onChangeTaxonomy: (taxonomy: TaxonomyType) => void;
   confidenceThreshold: number;
@@ -44,6 +51,8 @@ interface TextInputSectionProps {
 export const TextInputSection: React.FC<TextInputSectionProps> = ({
   text,
   onChangeText,
+  domainContext,
+  onChangeDomainContext,
   taxonomy,
   onChangeTaxonomy,
   confidenceThreshold,
@@ -59,6 +68,7 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
   const [fileLimitWarning, setFileLimitWarning] = useState<string | null>(null);
+  const [contextWarning, setContextWarning] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const selectedTaxonomyInfo = TAXONOMIES[taxonomy] || TAXONOMIES.wiki80;
@@ -105,6 +115,21 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       handleFileUpload(e.dataTransfer.files[0]);
     }
+  };
+
+  // Intercept extraction to enforce mandatory domain context
+  const handleExtractClick = () => {
+    if (!domainContext.trim()) {
+      setContextWarning(true);
+      const el = document.getElementById('domain-context-input');
+      if (el) {
+        el.focus();
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      return;
+    }
+    setContextWarning(false);
+    onExtract();
   };
 
   // Add Custom Relation
@@ -353,6 +378,122 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
         </div>
       )}
 
+      {/* Mandatory Domain & Semantic Context Free-Form Field */}
+      <div
+        className={`p-4 rounded-xl border transition-all ${
+          contextWarning
+            ? 'bg-rose-50/80 border-rose-400 ring-4 ring-rose-200 shadow-sm'
+            : domainContext.trim()
+            ? 'bg-emerald-50/30 border-emerald-300 focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-200'
+            : 'bg-[#FAF9F6] border-slate-200 focus-within:border-[#E5A93C] focus-within:ring-2 focus-within:ring-[#E5A93C]/20'
+        }`}
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 pb-2">
+          <label htmlFor="domain-context-input" className="text-xs font-bold text-[#08121E] flex items-center gap-2">
+            <Compass className="w-4 h-4 text-[#E5A93C]" />
+            <span>Contexto Temático do Texto</span>
+            {domainContext.trim() ? (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 shrink-0">
+                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                Contexto Ativo
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200 shrink-0 animate-pulse">
+                <Lock className="w-3 h-3 text-rose-600" />
+                Condição Obrigatória
+              </span>
+            )}
+          </label>
+          <span className="text-[11px] text-slate-500">
+            Campo livre: ancora a análise no nicho para evitar entidades e verbos sem sentido
+          </span>
+        </div>
+
+        <div className="relative">
+          <input
+            id="domain-context-input"
+            type="text"
+            value={domainContext}
+            onChange={e => {
+              onChangeDomainContext(e.target.value);
+              if (contextWarning && e.target.value.trim().length > 0) {
+                setContextWarning(false);
+              }
+            }}
+            placeholder="Sobre o que seu texto trata? Ex: SEO para E-commerce, Inteligência Artificial, Arquitetura de Software..."
+            className={`w-full pl-3.5 pr-10 py-2.5 text-xs text-[#08121E] placeholder:text-slate-400 bg-white border rounded-lg focus:outline-none transition-all ${
+              contextWarning
+                ? 'border-rose-500 ring-2 ring-rose-200'
+                : domainContext.trim()
+                ? 'border-emerald-300 focus:border-emerald-500'
+                : 'border-slate-300 focus:border-[#E5A93C]'
+            }`}
+          />
+          {domainContext && (
+            <button
+              type="button"
+              onClick={() => {
+                onChangeDomainContext('');
+              }}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer transition-colors"
+              title="Limpar contexto"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Quick Suggestion Chips for Fast Testing */}
+        <div className="pt-2 flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="text-[11px] text-slate-500 font-medium mr-1 flex items-center gap-1">
+            <Target className="w-3 h-3 text-slate-400" />
+            Sugestões rápidas para testar:
+          </span>
+          {[
+            'SEO para E-commerce',
+            'Inteligência Artificial & LLMs',
+            'Marketing de Conteúdo & Copy',
+            'Arquitetura de Software',
+            'Saúde & Medicina',
+            'Direito & Legislação',
+            'Finanças & Investimentos'
+          ].map(chip => (
+            <button
+              key={chip}
+              type="button"
+              onClick={() => {
+                onChangeDomainContext(chip);
+                setContextWarning(false);
+              }}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-medium border transition-all cursor-pointer ${
+                domainContext.trim().toLowerCase() === chip.toLowerCase()
+                  ? 'bg-[#1E5E3A] text-white border-[#1E5E3A] shadow-2xs font-semibold'
+                  : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 shadow-2xs'
+              }`}
+            >
+              {chip}
+            </button>
+          ))}
+        </div>
+
+        {/* Lock Warning Banner When User Attempts Extraction Without Context */}
+        {contextWarning && (
+          <div className="mt-3 p-3 rounded-lg bg-rose-50 border border-rose-300 text-xs text-rose-900 flex items-start gap-2.5 animate-fade-in shadow-2xs">
+            <div className="w-5 h-5 rounded-full bg-rose-200 text-rose-800 flex items-center justify-center shrink-0 mt-0.5 font-bold">
+              <Lock className="w-3 h-3 text-rose-700" />
+            </div>
+            <div className="space-y-1 flex-1">
+              <strong className="font-bold block text-rose-950">
+                ⚠️ Análise Travada: O contexto temático é condição indispensável para gerar a análise
+              </strong>
+              <p className="text-rose-900 leading-relaxed">
+                Para que o modelo não mapeie entidades sem sentido ou capture termos aleatórios, ele precisa saber previamente sobre o que seu texto trata. Por favor, <strong>escreva livremente no campo acima</strong> ou clique em uma das sugestões para destravar a extração.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* View Switcher & Live Text Metrics */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg text-xs font-medium self-start">
@@ -516,36 +657,64 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
 
         {/* Extraction Trigger CTA */}
         <div className="flex items-end">
-          <button
-            id="extract-relations-btn"
-            type="button"
-            onClick={onExtract}
-            disabled={isLoading || !text.trim() || isExceeded}
-            className={`w-full flex items-center justify-center gap-2 py-3 px-6 rounded-full font-bold text-xs shadow-xs transition-all cursor-pointer ${
-              isLoading || !text.trim()
-                ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                : isExceeded
-                ? 'bg-red-100 border border-red-200 text-red-600 cursor-not-allowed'
-                : 'bg-[#E5A93C] hover:bg-[#D99A2B] text-[#08121E] shadow-sm active:scale-[0.99]'
-            }`}
-          >
-            {isLoading ? (
-              <>
-                <div className="w-4 h-4 border-2 border-[#08121E]/30 border-t-[#08121E] rounded-full animate-spin" />
-                <span>Processando Extração & Grafo...</span>
-              </>
-            ) : isExceeded ? (
-              <>
-                <AlertCircle className="w-4 h-4 text-red-600" />
-                <span>Bloqueado: Reduza o Texto (&le; 15k palavras)</span>
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4 text-[#08121E]" />
-                <span>Extrair Relações & Gerar Grafo</span>
-              </>
+          <div className="w-full space-y-1.5">
+            {!domainContext.trim() && text.trim().length > 0 && (
+              <div className="flex items-center justify-between px-2 text-[10px] text-rose-700 font-semibold animate-pulse">
+                <span className="flex items-center gap-1">
+                  <Lock className="w-3 h-3 text-rose-600" />
+                  Análise travada: preencha o contexto
+                </span>
+                <button
+                  type="button"
+                  className="text-[10px] underline text-rose-800 hover:text-rose-950 font-bold cursor-pointer"
+                  onClick={() => {
+                    const el = document.getElementById('domain-context-input');
+                    el?.focus();
+                    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  }}
+                >
+                  Ir ao campo
+                </button>
+              </div>
             )}
-          </button>
+            <button
+              id="extract-relations-btn"
+              type="button"
+              onClick={handleExtractClick}
+              disabled={isLoading || !text.trim() || isExceeded}
+              className={`w-full flex items-center justify-center gap-2 py-3 px-6 rounded-full font-bold text-xs shadow-xs transition-all cursor-pointer ${
+                isLoading || !text.trim()
+                  ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                  : isExceeded
+                  ? 'bg-red-100 border border-red-200 text-red-600 cursor-not-allowed'
+                  : !domainContext.trim()
+                  ? 'bg-amber-100 hover:bg-amber-200 border border-amber-300 text-amber-900 active:scale-[0.99]'
+                  : 'bg-[#E5A93C] hover:bg-[#D99A2B] text-[#08121E] shadow-sm active:scale-[0.99]'
+              }`}
+            >
+              {isLoading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-[#08121E]/30 border-t-[#08121E] rounded-full animate-spin" />
+                  <span>Processando Extração & Grafo...</span>
+                </>
+              ) : isExceeded ? (
+                <>
+                  <AlertCircle className="w-4 h-4 text-red-600" />
+                  <span>Bloqueado: Reduza o Texto (&le; 15k palavras)</span>
+                </>
+              ) : !domainContext.trim() && text.trim().length > 0 ? (
+                <>
+                  <Lock className="w-4 h-4 text-rose-600" />
+                  <span>Trava Ativa: Definir Contexto</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 text-[#08121E]" />
+                  <span>Extrair Relações & Gerar Grafo</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
 

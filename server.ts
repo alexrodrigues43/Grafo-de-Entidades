@@ -58,6 +58,7 @@ async function generateWithResilience(
     systemInstruction: string;
     temperature?: number;
     responseMimeType?: string;
+    maxOutputTokens?: number;
   },
   logPrefix = 'Gemini'
 ): Promise<{ text: string; modelUsed: string }> {
@@ -78,7 +79,8 @@ async function generateWithResilience(
       const config: any = {
         systemInstruction: params.systemInstruction,
         temperature: params.temperature ?? 0.1,
-        responseMimeType: params.responseMimeType || 'application/json'
+        responseMimeType: params.responseMimeType || 'application/json',
+        maxOutputTokens: params.maxOutputTokens ?? 8192
       };
 
       // Set thinkingLevel per model
@@ -98,7 +100,25 @@ async function generateWithResilience(
       const response = await callWithTimeout(callPromise, 20000, `[${logPrefix}] ${modelName}`);
 
       if (response?.text) {
-        return { text: response.text, modelUsed: modelName };
+        const trimmed = response.text.trim();
+        // If JSON was requested, validate that the text contains parseable, structured content
+        if (params.responseMimeType === 'application/json') {
+          try {
+            const parsed = safeJsonParse(trimmed);
+            if (parsed && typeof parsed === 'object') {
+              return { text: trimmed, modelUsed: modelName };
+            }
+            throw new Error(`Model returned empty or non-object content`);
+          } catch (parseErr: any) {
+            console.warn(
+              `[${logPrefix}] Model ${modelName} returned incomplete or unparseable JSON (${trimmed.slice(0, 60)}...). Trying next candidate model.`
+            );
+            lastError = parseErr;
+            continue;
+          }
+        } else if (trimmed.length > 0) {
+          return { text: trimmed, modelUsed: modelName };
+        }
       }
     } catch (err: any) {
       lastError = err;
@@ -112,20 +132,109 @@ async function generateWithResilience(
   throw lastError || new Error('All model candidates temporarily unavailable');
 }
 
-// Robust JSON parser helper that safely strips markdown code fences and extraneous text
+// Robust JSON parser helper that safely strips markdown code fences, handles objects and arrays, and repairs truncated JSON
 function safeJsonParse<T = any>(raw: string): T {
+  if (!raw || typeof raw !== 'string') {
+    throw new Error('Empty or non-string input to safeJsonParse');
+  }
+
   let cleaned = raw.trim();
-  // Remove markdown code fences if present (```json ... ``` or ``` ...)
+
+  // Strip markdown code fences if present (```json ... ``` or ``` ...)
+  cleaned = cleaned.replace(/^```(?:json)?\s*/im, '').replace(/\s*```\s*$/m, '').trim();
   if (cleaned.startsWith('```')) {
     cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
   }
-  // If wrapped with extra outer characters, find first { and last }
-  const firstBrace = cleaned.indexOf('{');
-  const lastBrace = cleaned.lastIndexOf('}');
-  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-    cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+
+  // 1. Direct parse attempt
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    // Continue with repair heuristics
   }
-  return JSON.parse(cleaned);
+
+  // 2. Identify outer boundaries for object vs array
+  const firstBrace = cleaned.indexOf('{');
+  const firstBracket = cleaned.indexOf('[');
+  const lastBrace = cleaned.lastIndexOf('}');
+  const lastBracket = cleaned.lastIndexOf(']');
+
+  const isObject = firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket);
+  const isArray = firstBracket !== -1 && (firstBrace === -1 || firstBracket < firstBrace);
+
+  if (isObject && lastBrace > firstBrace) {
+    const candidate = cleaned.substring(firstBrace, lastBrace + 1);
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // Continue to truncation repair
+    }
+  } else if (isArray && lastBracket > firstBracket) {
+    const candidate = cleaned.substring(firstBracket, lastBracket + 1);
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // Continue to truncation repair
+    }
+  }
+
+  // 3. Tolerant repair for truncated JSON
+  try {
+    let repaired = cleaned;
+    const startIdx = Math.min(
+      firstBrace !== -1 ? firstBrace : Infinity,
+      firstBracket !== -1 ? firstBracket : Infinity
+    );
+    if (startIdx !== Infinity) {
+      repaired = repaired.substring(startIdx);
+    }
+
+    repaired = repaired.replace(/,\s*$/, '').trim();
+
+    let openBraces = 0;
+    let openBrackets = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let i = 0; i < repaired.length; i++) {
+      const char = repaired[i];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (!inString) {
+        if (char === '{') openBraces++;
+        else if (char === '}') openBraces = Math.max(0, openBraces - 1);
+        else if (char === '[') openBrackets++;
+        else if (char === ']') openBrackets = Math.max(0, openBrackets - 1);
+      }
+    }
+
+    if (inString) {
+      repaired += '"';
+    }
+
+    while (openBrackets > 0) {
+      repaired += ']';
+      openBrackets--;
+    }
+    while (openBraces > 0) {
+      repaired += '}';
+      openBraces--;
+    }
+
+    return JSON.parse(repaired);
+  } catch (err) {
+    throw new Error(`Failed to parse model JSON: ${(err as Error).message}`);
+  }
 }
 
 // ==========================================
@@ -296,7 +405,7 @@ function normalizeRelation(slug: string, label: string): { slug: string; label: 
 }
 
 // Fallback Heuristic Relation Extractor for offline / missing key resilience
-function fallbackExtract(rawText: string, taxonomy: string) {
+function fallbackExtract(rawText: string, taxonomy: string, domainContext: string = '') {
   const text = preprocessInputText(rawText);
   const entities: Array<{
     id: string;
@@ -668,6 +777,7 @@ app.post('/api/extract', requireAuth, async (req: Request, res: Response): Promi
   try {
     const {
       text,
+      domainContext = '',
       taxonomy = 'wiki80',
       customRelations = [],
       confidenceThreshold = 0.5,
@@ -676,6 +786,14 @@ app.post('/api/extract', requireAuth, async (req: Request, res: Response): Promi
 
     if (!text || typeof text !== 'string' || text.trim().length === 0) {
       res.status(400).json({ error: 'Text payload is required for relation extraction' });
+      return;
+    }
+
+    const contextStr = typeof domainContext === 'string' ? domainContext.trim() : '';
+    if (!contextStr) {
+      res.status(400).json({
+        error: 'Contexto Temático Obrigatório: A análise está travada. O campo de contexto é uma condição indispensável para ancorar a extração semântica e evitar entidades desconexas.'
+      });
       return;
     }
 
@@ -698,7 +816,7 @@ app.post('/api/extract', requireAuth, async (req: Request, res: Response): Promi
 
     if (!client) {
       // Offline fallback mode if API key is not yet set
-      const fallback = fallbackExtract(cleanedText, taxonomy);
+      const fallback = fallbackExtract(cleanedText, taxonomy, contextStr);
       const executionTimeMs = Date.now() - startTime;
       const filteredRelations = fallback.relations.filter(r => r.confidence >= confidenceThreshold);
 
@@ -707,6 +825,7 @@ app.post('/api/extract', requireAuth, async (req: Request, res: Response): Promi
         relations: filteredRelations,
         rawText: cleanedText,
         taxonomy,
+        domainContext: contextStr,
         executionTimeMs,
         modelUsed: 'heuristic_opennre_engine',
         summary: {
@@ -744,6 +863,12 @@ STRICT ONTOLOGY TYPING CONSTRAINTS (Wikidata-Aligned):
 Your task is to thoroughly analyze the provided text (which may be a short paragraph, a long article, a blog post, or a multi-section document), perform Named Entity Recognition (NER), deduplicate aliases into canonical entities, extract edge qualifiers, and extract all meaningful semantic triplets <head, relation, tail> for direct export into Graph Databases (Neo4j Cypher, RDF/Turtle, JSON-LD, GraphML, Gremlin).
 
 CRITICAL DIRECTIVES FOR ROBUST EXTRACTION:
+0. MANDATORY THEMATIC DOMAIN ANCHORING (ZERO NONSENSE POLICY):
+   - Explicit Domain / Thematic Context Provided by User: "${contextStr}"
+   - The user has strictly specified that this document belongs to and revolves around: "${contextStr}".
+   - ONLY extract entities, concepts, and relationships that are directly relevant, meaningful, and coherent within the context of "${contextStr}".
+   - STRICTLY SUPPRESS AND REJECT: incidental verbs treated as entities, peripheral conversational artifacts, off-topic stray words, or entities that make no sense within the domain of "${contextStr}".
+
 1. FULL DOCUMENT COVERAGE:
    - Analyze the ENTIRE document from the opening sentences, throughout all intermediate paragraphs/sections, to the conclusion.
    - Do NOT stop after the first few sentences or focus only on the introduction.
@@ -794,12 +919,46 @@ CRITICAL DIRECTIVES FOR ROBUST EXTRACTION:
    - Disambiguate coreferenced entities into one canonical entity (do not create separate duplicate nodes for "Google" e "Google LLC").
    - Connect the graph meaningfully with both micro-relations (within sentences) and macro-relations (thematic / document-level links).
    - Respect strict Domain and Range typing constraints.
-   - Return valid JSON matching the specified JSON schema strictly.`;
+
+9. MANDATORY JSON OUTPUT STRUCTURE:
+   Return EXCLUSIVELY a single valid JSON object strictly matching this schema:
+   {
+     "entities": [
+       {
+         "id": "canonical_id_slug",
+         "text": "Exact Canonical Entity Name",
+         "type": "Person | Organization | Location | Product | Event | Technology | Concept | Date | Country | Work | Award | Biomedical | Other",
+         "confidence": 0.95,
+         "aliases": ["alias_1", "alias_2"],
+         "wikidataId": "Q95"
+       }
+     ],
+     "relations": [
+       {
+         "id": "rel_1",
+         "headId": "head_entity_slug",
+         "headText": "Head Entity Name",
+         "headType": "Technology",
+         "tailId": "tail_entity_slug",
+         "tailText": "Tail Entity Name",
+         "tailType": "Concept",
+         "relation": "snake_case_relation",
+         "relationLabel": "Human Friendly Label",
+         "taxonomy": "${taxonomy}",
+         "confidence": 0.92,
+         "evidence": "Exact sentence proving this relation",
+         "direction": "DIRECTED",
+         "qualifiers": [
+           { "key": "time", "value": "2026", "wikidataProperty": "P585" }
+         ]
+       }
+     ]
+   }`;
 
     const { text: responseText, modelUsed: successfulModel } = await generateWithResilience(
       client,
       {
-        contents: `Perform exhaustive OpenNRE Named Entity, Alias Normalization & Relation Extraction with Edge Qualifiers on the following text:\n\n"""\n${cleanedText}\n"""`,
+        contents: `Perform domain-grounded OpenNRE Named Entity, Alias Normalization & Relation Extraction with Edge Qualifiers on the following text.\nPrimary Thematic Context: "${contextStr}"\n\n"""\n${cleanedText}\n"""`,
         systemInstruction: systemPrompt,
         temperature: 0.1,
         responseMimeType: 'application/json'
@@ -807,16 +966,41 @@ CRITICAL DIRECTIVES FOR ROBUST EXTRACTION:
       'OpenNRE-Extract'
     );
 
-    let parsed;
+    let parsed: any = null;
     try {
       parsed = safeJsonParse(responseText);
-    } catch (parseError) {
-      console.error('Failed to parse model JSON:', responseText);
-      throw new Error('Invalid JSON received from extraction model');
+    } catch (parseError: any) {
+      console.warn('Could not parse model JSON directly, using fallback recovery:', parseError?.message);
     }
 
-    const rawEntities: any[] = Array.isArray(parsed.entities) ? parsed.entities : [];
-    const rawRelations: any[] = Array.isArray(parsed.relations) ? parsed.relations : [];
+    let rawEntities: any[] = [];
+    let rawRelations: any[] = [];
+
+    if (parsed && typeof parsed === 'object') {
+      if (Array.isArray(parsed.entities)) {
+        rawEntities = parsed.entities;
+      }
+      if (Array.isArray(parsed.relations)) {
+        rawRelations = parsed.relations;
+      }
+      // If model returned a top-level array
+      if (Array.isArray(parsed)) {
+        parsed.forEach((item: any) => {
+          if (item?.head || item?.headText || item?.relation) {
+            rawRelations.push(item);
+          } else if (item?.text || item?.entity) {
+            rawEntities.push(item);
+          }
+        });
+      }
+    }
+
+    // If model extraction produced no entities or relations, smoothly fall back to heuristic extraction
+    if (rawEntities.length === 0 && rawRelations.length === 0) {
+      const fallback = fallbackExtract(cleanedText, taxonomy);
+      rawEntities = fallback.entities;
+      rawRelations = fallback.relations;
+    }
 
     // Ensure entity IDs and sanitize
     const entityMap = new Map<string, any>();
@@ -965,7 +1149,7 @@ CRITICAL DIRECTIVES FOR ROBUST EXTRACTION:
       }
     });
   } catch (error: any) {
-    console.error('Error in /api/extract:', error);
+    console.warn('Notice in /api/extract, using heuristic resilience fallback:', error?.message || error);
     // Fallback on error to ensure app never breaks for the user
     const text = req.body.text || '';
     const cleanedText = preprocessInputText(text);
@@ -1108,10 +1292,17 @@ function fallbackTextOptimization(
 // API Route: Analyze text connectivity and generate optimization report
 app.post('/api/analyze-text-connectivity', requireAuth, async (req: Request, res: Response) => {
   const startTime = Date.now();
-  const { text, entities = [], relations = [], taxonomy = 'wiki80' } = req.body;
+  const { text, entities = [], relations = [], taxonomy = 'wiki80', domainContext = '' } = req.body;
 
   if (!text || typeof text !== 'string' || !text.trim()) {
     return res.status(400).json({ error: 'Text parameter is required' });
+  }
+
+  const contextStr = typeof domainContext === 'string' ? domainContext.trim() : '';
+  if (!contextStr) {
+    return res.status(400).json({
+      error: 'Contexto Temático Obrigatório: A análise está travada. O campo de contexto é uma condição indispensável para ancorar o diagnóstico editorial de conectividade.'
+    });
   }
 
   // Safety word count and character limit guards
@@ -1152,6 +1343,10 @@ app.post('/api/analyze-text-connectivity', requireAuth, async (req: Request, res
   try {
     const systemPrompt = `Você é um especialista sênior em Engenharia de Conhecimento, Linguística Computacional e Consultoria Editorial para Redatores e Copywriters.
 Seu objetivo é analisar profundamente o texto do autor, suas entidades e relações, oferecendo um Diagnóstico Relacional de alta sensibilidade editorial e prática.
+
+DIRETIVA OBRIGATÓRIA DE CONTEXTO TEMÁTICO:
+- O autor definiu que este texto trata estritamente sobre: "${contextStr}".
+- Todas as sugestões de reescrita, diagnósticos de entidades isoladas e pontes relacionais sugeridas devem ser estritamente coerentes e ancoradas no nicho/tema "${contextStr}".
 
 DIRETIVA OBRIGATÓRIA DE IDIOMA:
 - TODO O DIAGNÓSTICO, EXPLICAÇÕES, SUGESTÕES E TEXTOS DEVEM SER GERADOS ESTRITAMENTE EM PORTUGUÊS DO BRASIL (PT-BR).
@@ -1232,6 +1427,7 @@ Relações Extraídas (${validRelations.length}):
 ${JSON.stringify(validRelations.map((r: any) => ({ head: r.headText, rel: r.relationLabel || r.relation, tail: r.tailText })), null, 2)}
 
 Taxonomia: ${taxonomy}
+Contexto Temático do Documento: "${contextStr}"
 
 Analise a topologia do texto e forneça o Relatório de Consultoria Editorial e Otimização Semântica estritamente em Português do Brasil (PT-BR).`;
 

@@ -59,6 +59,7 @@ export default function App() {
 
   // Main Extraction State (starts clean and empty)
   const [text, setText] = useState<string>('');
+  const [domainContext, setDomainContext] = useState<string>('');
   const [taxonomy, setTaxonomy] = useState<TaxonomyType>('wiki80');
   const [confidenceThreshold, setConfidenceThreshold] = useState<number>(0.5);
   const [customRelations, setCustomRelations] = useState<string[]>([
@@ -95,6 +96,16 @@ export default function App() {
     async (textToExtract: string, overrideToken?: string) => {
       if (!textToExtract.trim()) return;
 
+      if (!domainContext.trim()) {
+        setErrorMessage('Contexto Obrigatório: A análise está travada. O contexto temático é condição indispensável para gerar a análise e evitar entidades desconexas.');
+        const el = document.getElementById('domain-context-input');
+        if (el) {
+          el.focus();
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        return;
+      }
+
       let currentToken = overrideToken || session?.token;
       if (user) {
         try {
@@ -125,6 +136,7 @@ export default function App() {
           headers,
           body: JSON.stringify({
             text: textToExtract,
+            domainContext: domainContext.trim(),
             taxonomy,
             customRelations,
             confidenceThreshold
@@ -167,7 +179,7 @@ export default function App() {
         setIsLoading(false);
       }
     },
-    [taxonomy, customRelations, confidenceThreshold, session?.token, user, openPaywall]
+    [domainContext, taxonomy, customRelations, confidenceThreshold, session?.token, user, openPaywall]
   );
 
   const handleExtractRelations = useCallback(() => {
@@ -205,11 +217,22 @@ export default function App() {
           headers['x-user-uid'] = user.uid;
         }
 
+        if (!domainContext.trim()) {
+          setErrorMessage('Contexto Obrigatório: A análise está travada. O contexto temático é condição indispensável para gerar o diagnóstico e evitar entidades desconexas.');
+          const el = document.getElementById('domain-context-input');
+          if (el) {
+            el.focus();
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+          return;
+        }
+
         const response = await fetch('/api/analyze-text-connectivity', {
           method: 'POST',
           headers,
           body: JSON.stringify({
             text,
+            domainContext: domainContext.trim(),
             entities,
             relations,
             taxonomy
@@ -242,7 +265,7 @@ export default function App() {
         setIsOptimizing(false);
       }
     }, 'o Otimizador Editorial Semântico');
-  }, [text, entities, relations, taxonomy, session?.token, user, guardAction, openPaywall]);
+  }, [text, domainContext, entities, relations, taxonomy, session?.token, user, guardAction, openPaywall]);
 
   // Apply Optimized Text in 1 Click
   const handleApplyOptimizedText = useCallback(
@@ -264,7 +287,7 @@ export default function App() {
   const handleAuthenticated = (newSession: AuthSession) => {
     setSession(newSession);
     setAuthError(null);
-    if (text.trim()) {
+    if (text.trim() && domainContext.trim()) {
       handleExtractRelationsWithText(text, newSession.token);
     }
   };
@@ -280,12 +303,16 @@ export default function App() {
     }
   };
 
-  // Initial Extraction on Load ONLY if text is present and user is authorized
+  // Initial Extraction on Load ONLY if text is present, domainContext is filled, and user is authorized
   useEffect(() => {
-    if ((session?.authenticated || isActiveSubscriber || isAdmin) && text.trim().length > 0) {
+    if (
+      (session?.authenticated || isActiveSubscriber || isAdmin) &&
+      text.trim().length > 0 &&
+      domainContext.trim().length > 0
+    ) {
       handleExtractRelations();
     }
-  }, [session?.authenticated, isActiveSubscriber, isAdmin]);
+  }, [session?.authenticated, isActiveSubscriber, isAdmin, domainContext]);
 
   // Delete Triplet
   const handleDeleteRelation = (id: string) => {
@@ -402,6 +429,8 @@ export default function App() {
           <TextInputSection
             text={text}
             onChangeText={setText}
+            domainContext={domainContext}
+            onChangeDomainContext={setDomainContext}
             taxonomy={taxonomy}
             onChangeTaxonomy={setTaxonomy}
             confidenceThreshold={confidenceThreshold}
