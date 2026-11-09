@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
 import path from 'path';
+import crypto from 'crypto';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
@@ -7,9 +8,34 @@ import { createServer as createViteServer } from 'vite';
 dotenv.config({ override: true });
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 app.use(express.json({ limit: '10mb' }));
+
+// In-Memory AI Generation Cache (24h TTL) isolated by language and parameters
+interface CachedAiResponse {
+  result: any;
+  timestamp: number;
+}
+const aiGenerationCache = new Map<string, CachedAiResponse>();
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+function getLangInstruction(lang?: string): string {
+  const lower = (lang || 'pt').toLowerCase();
+  if (lower.startsWith('en')) {
+    return `LANGUAGE DIRECTIVE:
+- Generate all explanations, summaries, diagnosis, and suggestions STRICTLY in ENGLISH.
+- Strictly adhere to Semantic SEO vocabulary: NEVER use the word "keyword" or "keywords". Use "terms", "concepts", or "entities".`;
+  }
+  if (lower.startsWith('es')) {
+    return `DIRECTIVA DE IDIOMA:
+- Genere todas las explicaciones, resúmenes, diagnóstico y sugerencias ESTRICTAMENTE en ESPAÑOL.
+- Adherencia estricta al vocabulario de SEO Semántico: NUNCA utilice el término "palabras clave" ni "palabra clave". Utilice exclusivamente "términos", "conceptos" o "entidades".`;
+  }
+  return `DIRETIVA DE IDIOMA:
+- Gere todas as explicações, resumos, diagnóstico e sugestões ESTRITAMENTE em PORTUGUÊS DO BRASIL (PT-BR).
+- Aderência estrita ao vocabulário de SEO Semântico: NUNCA utilize o termo "palavra-chave" ou "palavras-chave". Utilize exclusivamente "termos", "conceitos" ou "entidades".`;
+}
 
 // Initialize Gemini Client
 let ai: GoogleGenAI | null = null;
@@ -481,6 +507,13 @@ function isInvalidEntity(text: string): boolean {
   const clean = text.trim();
   const lower = clean.toLowerCase();
 
+  // 0. Isenção: Siglas e acrônimos técnicos em maiúsculas (ex: SEM, SEO, CTR, LCP, CLS, DOM, CSS, API, AI, IA, URL, SDK, HTML, TTFB, SERP)
+  // não devem ser bloqueados por conectivos ou verbos homógrafos de grafia idêntica (como "sem" vs "SEM", "ia" vs "IA")
+  const isAcronym = clean.length >= 2 && clean === clean.toUpperCase() && /^[A-Z0-9_\-\.]+$/.test(clean);
+  if (isAcronym) {
+    return false;
+  }
+
   // 1. Termo direto na lista de conectivos/pronomes
   if (INVALID_CONNECTIVE_WORDS.has(lower)) return true;
 
@@ -534,8 +567,76 @@ function normalizeRelation(slug: string, label: string): { slug: string; label: 
     return { slug: 'has_property', label: 'Has Property / Features' };
   }
 
-  if (/^(pode|permite|possibilita|allows|enables)$/i.test(cleanSlug)) {
+  if (/^(pode|permite|possibilita|allows|enables|habilita)$/i.test(cleanSlug)) {
     return { slug: 'enables', label: 'Enables / Allows' };
+  }
+
+  if (/^(otimiza|melhora|aprimora|optimizes|enhances)$/i.test(cleanSlug)) {
+    return { slug: 'optimizes', label: 'Optimizes / Enhances' };
+  }
+
+  if (/^(impacta|influencia|afeta|impacts|influences|affects)$/i.test(cleanSlug)) {
+    return { slug: 'impacts', label: 'Impacts / Influences' };
+  }
+
+  if (/^(requer|necessita|depende|depende_de|requires|depends_on)$/i.test(cleanSlug)) {
+    return { slug: 'requires', label: 'Requires / Depends On' };
+  }
+
+  if (/^(mede|avalia|audita|quantifica|measures|evaluates|audits)$/i.test(cleanSlug)) {
+    return { slug: 'measures', label: 'Measures / Evaluates' };
+  }
+
+  if (/^(configura|governa|orienta|configures|governs)$/i.test(cleanSlug)) {
+    return { slug: 'configures', label: 'Configures / Governs' };
+  }
+
+  if (/^(monitora|rastreia|inspeciona|monitors|tracks|inspects)$/i.test(cleanSlug)) {
+    return { slug: 'monitors', label: 'Monitors / Analyzes' };
+  }
+
+  if (/^(usa|utiliza|integra|uses|uses_technology|integrates_with)$/i.test(cleanSlug)) {
+    return { slug: 'uses_technology', label: 'Uses Technology / Implements' };
+  }
+
+  if (/^(executa|executa_em|roda|roda_em|executes|executes_on|runs_on)$/i.test(cleanSlug)) {
+    return { slug: 'executes_on', label: 'Executes On / Runs On' };
+  }
+
+  if (/^(gera|produz|cria|generates|produces)$/i.test(cleanSlug)) {
+    return { slug: 'generates', label: 'Generates / Produces' };
+  }
+
+  if (/^(parte_de|faz_parte_de|componente_de|part_of|component_of)$/i.test(cleanSlug)) {
+    return { slug: 'part_of', label: 'Part Of / Component Of' };
+  }
+
+  if (/^(subtopico_de|subtopico|subtopic_of|subtopic)$/i.test(cleanSlug)) {
+    return { slug: 'subtopic_of', label: 'Subtopic Of / Pillar-Cluster' };
+  }
+
+  if (/^(resolve_problema|soluciona|solves_problem|resolves)$/i.test(cleanSlug)) {
+    return { slug: 'solves_problem', label: 'Solves Problem / Pain Point' };
+  }
+
+  if (/^(atende_intencao|satisfaz_intencao|answers_intent|satisfies_intent)$/i.test(cleanSlug)) {
+    return { slug: 'answers_intent', label: 'Answers Search Intent' };
+  }
+
+  if (/^(direcionado_a|destinado_a|publico_alvo|targets_audience|audience)$/i.test(cleanSlug)) {
+    return { slug: 'targets_audience', label: 'Targets Audience / Persona' };
+  }
+
+  if (/^(alternativa_a|concorrente_de|alternative_to|competitor_of)$/i.test(cleanSlug)) {
+    return { slug: 'alternative_to', label: 'Alternative To / Competitor' };
+  }
+
+  if (/^(recomenda|indica|recommends|endorses)$/i.test(cleanSlug)) {
+    return { slug: 'recommends', label: 'Recommends / Endorses' };
+  }
+
+  if (/^(escrito_por|autoria_de|authored_by|created_by)$/i.test(cleanSlug)) {
+    return { slug: 'authored_by', label: 'Authored By (E-E-A-T)' };
   }
 
   return { slug: cleanSlug, label: cleanLabel };
@@ -949,6 +1050,19 @@ app.post('/api/extract', requireAuth, async (req: Request, res: Response): Promi
     // NLP Structural Preprocessing: separates headings from paragraph bodies, normalizes bullet lines and punctuation
     const cleanedText = preprocessInputText(text);
 
+    // Check in-memory SHA-256 cache
+    const targetLang = (language && language !== 'auto' ? language : 'pt').toLowerCase();
+    const cacheKey = 'extract:' + crypto.createHash('sha256').update(`${targetLang}:${taxonomy}:${confidenceThreshold}:${contextStr}:${cleanedText}`).digest('hex');
+    const cached = aiGenerationCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp < CACHE_TTL_MS)) {
+      res.json({
+        ...cached.result,
+        executionTimeMs: Date.now() - startTime,
+        cached: true
+      });
+      return;
+    }
+
     const client = getGeminiClient();
 
     if (!client) {
@@ -976,102 +1090,98 @@ app.post('/api/extract', requireAuth, async (req: Request, res: Response): Promi
     }
 
     // Taxonomy & Ontology Instructions
-    let taxonomyGuidance = `Use standard OpenNRE relations from the Wiki80 benchmark aligned with Wikidata properties (such as founded_by [P112], headquarters_location [P159], parent_company [P749], developer_of [P178], country_of_citizenship [P27], educated_at [P69], subclass_of [P279], part_of [P361], member_of [P463], author [P50], award_received [P166], spouse [P26], capital_of [P36], participant_in [P1344], occupation [P106], employer [P108], manufacturer [P176], discovers_or_invents [P61], operates [P121]).
-STRICT ONTOLOGY TYPING CONSTRAINTS (Wikidata-Aligned):
-- 'educated_at': Head must be Person, Tail must be Organization (educational institution).
-- 'founded_by': Head must be Organization/Product/Company, Tail must be Person/Organization.
-- 'headquarters_location': Head must be Organization, Tail must be Location.
-- 'country_of_citizenship' / 'country_of_origin': Tail must be Country or Location.
-- 'subclass_of': Head and Tail must both be Concepts/Technologies/Products.
-- 'developer_of': Head must be Organization or Person, Tail must be Technology, Product, or Software.
-- 'member_of': Head must be Person or Organization, Tail must be Organization.`;
-
-    if (taxonomy === 'tacred') {
-      taxonomyGuidance = `Use relations aligned with TACRED (Stanford NLP RE) such as org:founded_by, org:top_members_employees, org:subsidiaries, org:parents, org:city_of_headquarters, per:title, per:city_of_birth, per:schools_attended, per:spouse, per:charges, per:age.`;
-    } else if (taxonomy === 'semeval') {
-      taxonomyGuidance = `Use SemEval-2010 Task 8 relation categories: Cause-Effect, Component-Whole, Entity-Destination, Product-Producer, Entity-Origin, Theme-Tool, Member-Collection, Message-Topic, Content-Container.`;
-    } else if (taxonomy === 'fewrel') {
-      taxonomyGuidance = `Use FewRel relation categories: P17_country, P495_country_of_origin, P106_occupation, P1344_participant_in, P27_country_of_citizenship, P150_contains_administrative_territorial_entity, P57_director.`;
-    } else if (taxonomy === 'custom' && customRelations.length > 0) {
-      taxonomyGuidance = `Use the following custom domain relations provided by user: ${customRelations.join(', ')}. If other clear relations exist, formulate descriptive snake_case relations.`;
+    let taxonomyGuidance = '';
+    if (taxonomy === 'semantic_seo') {
+      taxonomyGuidance = `TAXONOMY: SEO Semântico & Topic Clusters (Schema.org / Artigos - Recomendado):
+Use domain relations specifically tailored for content architecture, topic clusters, search intent, and E-E-A-T:
+- 'subtopic_of': Entity is a specialized subtopic or cluster component of a main pillar concept (e.g. <Crawl Budget, subtopic_of, SEO Técnico>).
+- 'optimizes': Head improves, accelerates, or optimizes Tail metric or performance (e.g. <Compressão WebP, optimizes, LCP>).
+- 'impacts': Head directly influences or affects Tail result (e.g. <Velocidade da Página, impacts, Taxa de Rejeição>).
+- 'solves_problem': Solution or technique fixes target issue (e.g. <Tag Canonical, solves_problem, Conteúdo Duplicado>).
+- 'answers_intent': Content satisfies specific search intent (e.g. <Tabela Comparativa, answers_intent, Intenção Comercial>).
+- 'targets_audience': Tailored to specific persona or reader group (e.g. <Artigo, targets_audience, Desenvolvedores Web>).
+- 'measures': Audits or monitors target metric or system (e.g. <Search Console, measures, CTR>).
+- 'configures': Sets rules or directives for target (e.g. <Robots.txt, configures, Googlebot>).
+- 'alternative_to': Compares competitor or alternative tool (e.g. <Matomo, alternative_to, Google Analytics>).
+- 'recommends': Recommends or endorses target tool or practice (e.g. <Guia, recommends, Screaming Frog>).
+- 'requires': Mandates prerequisite or condition (e.g. <Indexação, requires, Código HTTP 200>).
+- 'component_of': Part of structural architecture (e.g. <Schema.org, component_of, Web Semântica>).
+- 'enables': Unlocks feature or rich snippet (e.g. <JSON-LD, enables, Rich Snippets>).
+- 'defined_as': Canonical ontological definition of a concept.
+- 'authored_by': Authorial E-E-A-T attribution to person or company.
+- 'uses_technology': Implements software or standard (e.g. <Googlebot, uses_technology, Chromium>).`;
+    } else if (taxonomy === 'tacred') {
+      taxonomyGuidance = `TAXONOMY: Stanford TACRED (Focused on Corporate, Executive Profiles & People):
+Use relations aligned with TACRED: org:founded_by, org:top_members_employees, org:subsidiaries, org:parents, org:city_of_headquarters, per:title, per:city_of_birth, per:schools_attended, per:spouse, per:charges, per:age, per:member_of.`;
+    } else {
+      // wiki80 (Wikidata & General Knowledge Ontologies)
+      taxonomyGuidance = `TAXONOMY: OpenNRE Wiki80 (Wikidata & General Knowledge Ontologies):
+Use standard Wikidata properties and ontological relations:
+- subclass_of [P279], part_of [P361], developer_of [P178], manufacturer [P176], operates [P121], author [P50], member_of [P463], founded_by [P112], headquarters_location [P159], country_of_citizenship [P27].
+- Functional domain actions: optimizes, impacts, requires, measures, configures, uses_technology, enables, monitors, executes_on, generates, defined_as.`;
     }
 
-    const systemPrompt = `You are OpenNRE-Engine, an advanced neural relation extraction and ontology-grounded knowledge graph pipeline inspired by THU-NLP's OpenNRE and Wikidata/Wikontic graph construction principles.
-Your task is to thoroughly analyze the provided text (which may be a short paragraph, a long article, a blog post, or a multi-section document), perform Named Entity Recognition (NER), deduplicate aliases into canonical entities, extract edge qualifiers, and extract all meaningful semantic triplets <head, relation, tail> for direct export into Graph Databases (Neo4j Cypher, RDF/Turtle, JSON-LD, GraphML, Gremlin).
+    const systemPrompt = `You are OpenNRE Semantic Engine, a neural relation and knowledge graph extraction pipeline designed specifically for Content Writers, SEO Architects, and Ontology Engineers.
+Your objective is to analyze the text, extract all legitimate semantic entities across the entire document, resolve coreferences, and construct a rich, highly informative Knowledge Graph <head, relation, tail> that accurately maps the document's topical landscape.
 
-CRITICAL DIRECTIVES FOR ROBUST EXTRACTION:
-0. MANDATORY THEMATIC DOMAIN ANCHORING (ZERO NONSENSE POLICY):
-   - Explicit Domain / Thematic Context Provided by User: "${contextStr}"
-   - The user has strictly specified that this document belongs to and revolves around: "${contextStr}".
-   - ONLY extract entities, concepts, and relationships that are directly relevant, meaningful, and coherent within the context of "${contextStr}".
-   - STRICTLY SUPPRESS AND REJECT: incidental verbs treated as entities, peripheral conversational artifacts, off-topic stray words, or entities that make no sense within the domain of "${contextStr}".
+${getLangInstruction(targetLang)}
 
-1. FULL DOCUMENT COVERAGE:
-   - Analyze the ENTIRE document from the opening sentences, throughout all intermediate paragraphs/sections, to the conclusion.
-   - Do NOT stop after the first few sentences or focus only on the introduction.
-   - For medium and long texts (such as blog posts), extract all significant entities (persons, organizations, technologies, concepts, events, places, dates) and their interconnections across the whole piece.
+BALANCED EXTRACTION GUIDELINES (OPTIMAL RECALL + HIGH PRECISION):
 
-2. Salient Named Entities & Alias-Aware Deduplication (Wikontic Pattern):
-   - Identify entity id (unique, clean alphanumeric slug), exact text (canonical title), and entity type (One of: 'Person', 'Organization', 'Location', 'Product', 'Event', 'Technology', 'Concept', 'Date', 'Country', 'Work', 'Award', 'Biomedical', 'Other').
-   - Identify 'aliases': array of surface forms, abbreviations, nicknames, or specific technical terms used in the text to refer to this entity (e.g. text: "Googlebot", aliases: ["crawler do Google", "web crawler"]).
-   - Identify 'wikidataId': provide Wikidata Item ID if widely known (e.g. "Q95" for Google, "Q11463" for Python, "Q79016896" for OpenAI, "Q155" for Brazil, etc.).
-   - Entity Name Purity: NEVER leave colons (":"), semicolons, quotes, or trailing punctuation inside an entity name (e.g. write "Análise de logs de acesso", NEVER "Análise de logs de acesso:").
-   - Assign realistic entity confidence score (between 0.70 and 1.00).
+1. THEMATIC CONTEXT ANCHORING & DOMAIN SCOPE:
+   - Target Domain / Niche: "${contextStr}".
+   - Interpret the document through the lens of "${contextStr}".
+   - Prioritize all concepts, technologies, metrics, tools, methods, and entities that belong to the semantic web of "${contextStr}".
+   - Use this context to disambiguate terms (e.g., in SEO, "código 200" is an HTTP Status Code, "rastreador" is a Web Crawler).
+   - Discard only purely off-topic conversational banter or incidental metaphors that carry no domain value.
 
-3. Semantic Relations & Edge Qualifiers:
-   - Head Entity (Subject) and Tail Entity (Object).
-   - Relation Slug: concise, standardized snake_case identifier (e.g. "founded_by", "headquarters_location", "developed_by", "member_of", "author_of", "uses_technology", "integrates_with", "subclass_of", "enables", "monitors", "analyzes", "executes_on", "used_for", "proposes_concept", "acquired_by").
-   - Relation Label: clean human-friendly title (e.g. "Founded By", "Author Of", "Uses Technology", "Enables", "Monitors").
-   - Relation Taxonomy: "${taxonomy}". ${taxonomyGuidance}
-   - Confidence: realistic relation extraction confidence score (0.00 to 1.00).
-   - Evidence: the exact sentence or clause from the text proving this relation.
-   - Direction: "DIRECTED" (standard head -> tail).
-   - Qualifiers: Extract contextual qualifiers for the edge whenever mentioned in text (e.g. time/year of event [P585], specific job role [P3831], condition, geographic context, stated_in, proportion/percentage). Format: array of { key: string, value: string, wikidataProperty?: string }.
+2. BALANCED DENSITY FOR CONTENT WRITERS (PREVENT PREMATURE PRUNING):
+   - Redators and SEO specialists rely on this graph to audit entity completeness, topical authority, and semantic connections in their articles.
+   - DO NOT be timid or overly conservative: extract ALL legitimate domain entities and concepts across the entire document (introduction, body sections, bullet points, technical explanations, and conclusion).
+   - Target Entity Density: For standard articles, identify between 12 and 35 key domain entities (scaled proportionally according to text length) and connect them through rich semantic relations.
+   - Capture the full conceptual hierarchy: Core Subjects, Subtopics, Supporting Concepts, Technical Standards, Tools, Metrics, and Outcomes.
 
-4. MANDATORY STRUCTURAL ISOLATION (HEADINGS VS. PARAGRAPHS):
-   - NEVER merge a section title, H1, or H2 (e.g. "A anatomia do Googlebot e a arquitetura de um web crawler moderno") with the opening sentence of the subsequent paragraph.
-   - A title/heading establishes topic context; it is NOT the grammatical subject of the verb in the following paragraph!
-   - If the text has: "A anatomia do Googlebot e a arquitetura de um web crawler moderno. O Googlebot é um sistema...", the Subject is "Googlebot" (Technology/Software), NOT the truncated title string.
+3. RICH ENTITY TAXONOMY (WHAT COUNTS AS A VALID ENTITY):
+   Entities must be NOUN PHRASES (Substantivos ou Sintagmas Nominais). Classify each entity into one of these types:
+   - 'Concept': Core theoretical and domain concepts (e.g. "Orçamento de Rastreamento", "Arquitetura de Informação", "SEO On-Page", "Taxa de Rejeição", "Intenção de Busca", "Indexação", "Dados Estruturados", "Link Building").
+   - 'Technology': Softwares, protocols, formats, tools, algorithms, specifications (e.g. "Googlebot", "Robots.txt", "Sitemap XML", "Screaming Frog", "Chromium", "HTML5", "CSS", "Apache").
+   - 'Product': Commercial platforms, products, or services (e.g. "Google Search Console", "WordPress", "PageSpeed Insights", "Ahrefs").
+   - 'Metric': Quantitative/qualitative metrics, HTTP status codes, performance criteria (e.g. "LCP", "CLS", "Código HTTP 200", "Tempo de Resposta TTFB", "CTR", "PageRank").
+   - 'Method': Technical processes, practices, and actionable procedures treated as nouns (e.g. "Auditoria Técnica", "Renderização em JavaScript", "Minificação de CSS", "Compressão Gzip").
+   - 'Organization': Companies, search engines, consortiums, institutions (e.g. "Google", "W3C", "Cloudflare", "OpenAI").
+   - 'Person': Real individuals, industry specialists, authors (e.g. "John Mueller", "Matt Cutts").
+   - 'Location', 'Event', 'Date', 'Country', 'Work', 'Biomedical', 'Other'.
 
-5. MANDATORY COREFERENCE & ANAPHORA RESOLUTION (ZERO PRONOUN POLICY):
-   - NEVER output personal pronouns, demonstrative pronouns, or vague generic noun phrases as Entity names, Head entities, or Tail entities.
-   - STRICTLY FORBIDDEN ENTITIES include: "Ele", "Ela", "Eles", "Elas", "Ele roda...", "Isso", "Isto", "Aquilo", "Este", "Esta", "Esses", "Essas", "Esses dados", "Este sistema", "A ferramenta", "O crawler", "O mesmo", "A mesma", "It", "They", "This", "These data".
-   - You MUST resolve any anaphoric pronoun to its true canonical referent from the surrounding paragraph context:
-     * Example 1: If the text says "Ele roda simultaneamente em milhares de máquinas...", RESOLVE "Ele" -> Head: "Googlebot", Relation: "executes_on", Tail: "Máquinas distribuídas globalmente".
-     * Example 2: If the text says "Esses dados são usados para alimentar índices de buscadores...", RESOLVE "Esses dados" -> Head: "Dados de requisição HTTP e conteúdo web baixado", Relation: "used_for", Tail: "Índices de buscadores e modelos de IA".
-   - If a pronoun cannot be resolved with certainty to a known canonical entity, DO NOT extract a low-quality triplet.
+4. STRUCTURAL NOUN-PHRASE PURITY (RESOLVING VERBS INTO EDGES, NOT NODES):
+   - In a Knowledge Graph, VERBS ARE EDGES (RELATIONS), NEVER NODES (ENTITIES).
+   - NEVER create entity nodes that are lone conjugated verbs (e.g. "analisa", "roda", "permite", "executa", "ajuda", "garante", "funciona", "cria", "gera") or verb fragments ("analisa os dados", "permite fazer", "roda no servidor").
+   - Instead, transform verbal actions into relations connecting two noun entities:
+     * Text: "O Googlebot analisa os logs de acesso do servidor para detectar anomalias."
+     * Extraction: Head: "Googlebot" (Technology) -> Relation: "analyzes" (or "monitors") -> Tail: "Logs de acesso do servidor" (Concept/Technology).
+   - Clean entity names: NEVER include trailing colons, semicolons, quotes, or list punctuation (write "Logs de acesso", NEVER "Logs de acesso:").
 
-6. STRICT BAN ON CONNECTIVES, DISCOURSE MARKERS, PREPOSITIONS & TRANSITIONAL ADVERBS:
-   - UNDER NO CIRCUMSTANCES should transitional discourse markers, connectives, spatial/temporal adverbs, quantifiers, demonstratives, or conjunctions be extracted as Entities, Concepts, Head entities, or Tail entities!
-   - STRICTLY FORBIDDEN WORDS AS ENTITIES: "Afinal", "Abaixo", "Acima", "Depois", "Antes", "Ainda", "Dentro", "Fora", "Ambas", "Ambos", "Assim", "Portanto", "Contudo", "Todavia", "Porém", "Entretanto", "Além disso", "Embora", "Enquanto", "Durante", "Segundo", "Conforme", "Diante", "Junto", "Apesar", "Ou seja", "Isto é", "Furthermore", "Moreover", "However", "Therefore", "After", "Below", "Within", "Both", "Either", "Neither", "Instead", "Meanwhile".
-   - These words are grammatical glue, NOT knowledge graph nodes. Extracting them clutters the graph and breaks ontology integrity.
+5. COREFERENCE & ANAPHORA RESOLUTION (ZERO PRONOUN POLICY):
+   - NEVER output pronouns ("Ele", "Ela", "Eles", "Isso", "Este sistema", "A ferramenta", "O mesmo", "It", "They") as entity nodes.
+   - Always resolve pronouns to their explicit canonical antecedent from the paragraph context (e.g., if "Ele consome..." refers to "Googlebot", the entity is "Googlebot").
 
-7. STRUCTURED LISTS & HIGH-VALUE PREDICATES (NO WEAK COPULA VERBS):
-   - When parsing list items or definitions with colons (e.g. "Análise de logs de acesso: é possível isolar as requisições do Googlebot..."):
-     * Extract the head entity cleanly without punctuation: "Análise de logs de acesso".
-     * NEVER use weak copula verbs ("é", "são", "is", "are", "estabelece relação factual em", "tem") as relation predicates.
-     * Formulate functional semantic relations: <Análise de logs de acesso, enables / monitors, Requisições do Googlebot>.
+6. BAN ON DISCOURSE CONNECTIVES & FILLER WORDS:
+   - Grammatical connectives, transition adverbs, and discourse markers ("Afinal", "Abaixo", "Depois", "Ainda", "Dentro", "Assim", "Portanto", "Contudo", "Além disso", "Ou seja", "No entanto") are NEVER entities.
+   - Standalone empty filler nouns ("coisa", "algo", "modo", "tipo", "fato", "caso", "exemplo") or standalone adjectives ("melhor", "novo", "rápido") are not entities unless part of a specific technical compound term (e.g. "Tipo de Conteúdo MIME", "Ponto de Entrada").
 
-8. STRICT BAN ON VERBS, CONJUGATED FORMS, VERBAL PHRASES & EMPTY FILLER NOUNS:
-   - In Knowledge Graphs, VERBS ARE EDGES (RELATIONS), NEVER NODES (ENTITIES)!
-   - STRICTLY FORBIDDEN AS ENTITIES: Lone verbs or conjugated verb forms in Portuguese or English (e.g. "analisa", "roda", "permite", "executa", "ajuda", "garante", "funciona", "precisa", "cria", "gera", "opera", "tem", "faz", "é", "são", "foi", "foram", "deve", "pode").
-   - STRICTLY FORBIDDEN AS ENTITIES: Clauses or fragments beginning with verbs (e.g. "analisa os dados", "permite fazer", "roda no servidor", "ajuda a entender", "usado para", "feito por", "é uma ferramenta").
-   - STRICTLY FORBIDDEN AS ENTITIES: Abstract empty filler nouns (e.g. "coisa", "algo", "modo", "maneira", "tipo", "fato", "caso", "vez", "ponto", "aspecto", "questão", "exemplo") or standalone adjectives ("melhor", "novo", "rápido", "importante", "geral").
-   - ENTITIES MUST ALWAYS BE CLEAN, SPECIFIC CANONICAL NOUN PHRASES (Named Entities, specific technologies, organizations, products, specialized technical concepts).
+7. SEMANTIC RELATIONS & EVIDENCE:
+   - Formulate clean, descriptive snake_case relations reflecting real domain dependencies (e.g. "optimizes", "impacts", "requires", "measures", "configures", "uses_technology", "enables", "monitors", "subclass_of", "part_of", "developer_of", "executes_on", "generates", "defined_as"). ${taxonomyGuidance}
+   - Human-friendly Relation Labels (e.g. "Otimiza", "Impacta", "Requer", "Mede", "Configura", "Utiliza Tecnologia", "Habilita", "Monitora").
+   - Ground each relation with the exact sentence proof in "evidence".
+   - Assign realistic confidence scores (between 0.75 and 1.00).
 
-9. Cleanliness & Graph Topology:
-   - Disambiguate coreferenced entities into one canonical entity (do not create separate duplicate nodes for "Google" e "Google LLC").
-   - Connect the graph meaningfully with both micro-relations (within sentences) and macro-relations (thematic / document-level links).
-   - Respect strict Domain and Range typing constraints.
-
-10. MANDATORY JSON OUTPUT STRUCTURE:
+8. MANDATORY JSON OUTPUT STRUCTURE:
    Return EXCLUSIVELY a single valid JSON object strictly matching this schema:
    {
      "entities": [
        {
          "id": "canonical_id_slug",
          "text": "Exact Canonical Entity Name",
-         "type": "Person | Organization | Location | Product | Event | Technology | Concept | Date | Country | Work | Award | Biomedical | Other",
+         "type": "Concept | Technology | Product | Metric | Method | Organization | Person | Location | Event | Other",
          "confidence": 0.95,
          "aliases": ["alias_1", "alias_2"],
          "wikidataId": "Q95"
@@ -1104,7 +1214,7 @@ CRITICAL DIRECTIVES FOR ROBUST EXTRACTION:
       {
         contents: `Perform domain-grounded OpenNRE Named Entity, Alias Normalization & Relation Extraction with Edge Qualifiers on the following text.\nPrimary Thematic Context: "${contextStr}"\n\n"""\n${cleanedText}\n"""`,
         systemInstruction: systemPrompt,
-        temperature: 0.1,
+        temperature: 0.25,
         responseMimeType: 'application/json'
       },
       'OpenNRE-Extract'
@@ -1278,7 +1388,7 @@ CRITICAL DIRECTIVES FOR ROBUST EXTRACTION:
       ? (2 * totalRelations) / (totalEntities * (totalEntities - 1))
       : 0;
 
-    res.json({
+    const resultPayload = {
       entities: sanitizedEntities,
       relations: sanitizedRelations,
       rawText: cleanedText,
@@ -1291,7 +1401,15 @@ CRITICAL DIRECTIVES FOR ROBUST EXTRACTION:
         avgConfidence: Number(avgConfidence.toFixed(3)),
         density: Number(density.toFixed(4))
       }
+    };
+
+    // Cache valid extracted result
+    aiGenerationCache.set(cacheKey, {
+      result: resultPayload,
+      timestamp: Date.now()
     });
+
+    res.json(resultPayload);
   } catch (error: any) {
     console.info('Notice in /api/extract: using heuristic resilience fallback for relation extraction.');
     // Fallback on error to ensure app never breaks for the user
@@ -1339,7 +1457,9 @@ function findContextSentence(fullText: string, entityText: string): string {
 function fallbackTextOptimization(
   text: string,
   entities: Array<{ id?: string; text: string; type?: string }>,
-  relations: Array<{ headText: string; tailText: string; relation?: string; headId?: string; tailId?: string }>
+  relations: Array<{ headText: string; tailText: string; relation?: string; headId?: string; tailId?: string }>,
+  taxonomy: string = 'semantic_seo',
+  domainContext: string = ''
 ) {
   const connectedNodeIds = new Set<string>();
   relations.forEach(r => {
@@ -1358,7 +1478,13 @@ function fallbackTextOptimization(
 
   const mainConnected = validEntities.find(
     e => connectedNodeIds.has(e.id || '') || connectedNodeIds.has(e.text.toLowerCase())
-  )?.text || validEntities[0]?.text || 'Tópico Principal';
+  )?.text || validEntities[0]?.text || (domainContext || 'Tópico Principal');
+
+  const defaultRelation = taxonomy === 'semantic_seo' 
+    ? 'optimizes' 
+    : taxonomy === 'tacred' 
+    ? 'org:parents' 
+    : 'use';
 
   const isolatedEntities = isolated.map(e => {
     const context = findContextSentence(text, e.text);
@@ -1369,10 +1495,10 @@ function fallbackTextOptimization(
       type: e.type || 'Concept',
       contextSentence: context || `Menção a ${e.text} no corpo do artigo.`,
       targetEntityToConnect: target,
-      recommendedRelation: 'integrates_with',
+      recommendedRelation: defaultRelation,
       reason: `A entidade '${e.text}' é mencionada sem uma oração ativa ou predicado relacional explícito conectando-a diretamente a '${target}', deixando-a como nó órfão no grafo.`,
       editorialOption: `Ao estruturar a narrativa em torno de ${target}, ${e.text} atua como elemento fundamental para sustentar a eficácia do processo.`,
-      seoDirectOption: `${target} integra e executa diretamente ${e.text}, otimizando a arquitetura relacional e a precisão do conhecimento.`,
+      seoDirectOption: `${target} ${defaultRelation === 'optimizes' ? 'otimiza e fundamenta' : 'integra diretamente'} ${e.text}, fortalecendo a topologia do conhecimento.`,
       suggestedFix: `Conecte '${e.text}' a '${target}' através de um predicado verbal ativo direto.`
     };
   });
@@ -1395,6 +1521,25 @@ function fallbackTextOptimization(
   const ent1 = validEntities[0]?.text || 'O sistema';
   const ent2 = validEntities[1]?.text || 'as operações estruturais';
 
+  const topicalGaps = domainContext ? [
+    {
+      entity: `Fundamentos de ${domainContext}`,
+      type: 'Concept',
+      importance: 'Crítica' as const,
+      suggestedRelation: taxonomy === 'semantic_seo' ? 'subtopic_of' : 'part_of',
+      whyEssential: `Cobrir a base conceitual de '${domainContext}' ancora o artigo como referência completa para motores de busca e leitores.`,
+      suggestedSnippetToInsert: `Para consolidar a arquitetura de ${domainContext}, é recomendável detalhar explicitamente os princípios operacionais aplicáveis.`
+    },
+    {
+      entity: `Boas Práticas e Métricas`,
+      type: 'Metric',
+      importance: 'Alta' as const,
+      suggestedRelation: taxonomy === 'semantic_seo' ? 'measures_metric' : 'use',
+      whyEssential: `Métricas quantificáveis aumentam o E-E-A-T do artigo, permitindo ao leitor avaliar o impacto das soluções apresentadas.`,
+      suggestedSnippetToInsert: `A eficiência do processo é comprovada através de métricas de desempenho e taxas de conversão rigorosamente monitoradas.`
+    }
+  ] : [];
+
   return {
     connectivityScore: score,
     connectivityLevel,
@@ -1403,12 +1548,13 @@ function fallbackTextOptimization(
         ? `O texto possui ${validEntities.length} entidades válidas identificadas, com ${isolated.length} termos isolados que necessitam de pontes predicativas para enriquecer a topologia do grafo.`
         : `O texto apresenta excelente densidade relacional, com ${relations.length} relações extraídas conectando solidamente os nós centrais de conhecimento.`,
     isolatedEntities,
+    topicalGaps,
     implicitOrWeakRelations: [
       {
         headEntity: ent1,
         tailEntity: ent2,
         issue: 'A relação pode estar implícita por proximidade textual, sem um verbo ontológico ativo unindo os termos.',
-        suggestedRelation: 'integrates_with / developed_by / enables',
+        suggestedRelation: taxonomy === 'semantic_seo' ? 'optimizes / component_of' : 'use / part_of',
         howToClarify: 'Formule uma oração direta com sujeito canônico e verbo de ação no mesmo período gramatical.'
       }
     ],
@@ -1417,15 +1563,11 @@ function fallbackTextOptimization(
         originalSnippet: firstSentence,
         suggestedSnippet: `${ent1} desenvolve e opera diretamente ${ent2}, estabelecendo a espinha dorsal de conhecimento do documento.`,
         explanation: 'Substituição de formulação elíptica ou passiva por oração ativa com predicado relacional explícito.',
-        relationUnlocked: 'operates / integrates_with'
+        relationUnlocked: taxonomy === 'semantic_seo' ? 'optimizes / executes_on' : 'operates / integrates_with'
       }
     ],
     optimizedText: text,
-    expectedNewRelations: [
-      'developed_by',
-      'integrates_with',
-      'operates'
-    ],
+    expectedNewRelations: taxonomy === 'semantic_seo' ? ['optimizes', 'solves_problem', 'component_of'] : ['part_of', 'use', 'developer'],
     keyImprovements: [
       'Eliminação completa de nós órfãos através de predicados verbais ativos.',
       'Substituição de pronomes vagos por substantivos canônicos desambiguados.',
@@ -1437,7 +1579,7 @@ function fallbackTextOptimization(
 // API Route: Analyze text connectivity and generate optimization report
 app.post('/api/analyze-text-connectivity', requireAuth, async (req: Request, res: Response) => {
   const startTime = Date.now();
-  const { text, entities = [], relations = [], taxonomy = 'wiki80', domainContext = '' } = req.body;
+  const { text, entities = [], relations = [], taxonomy = 'semantic_seo', domainContext = '', language = 'pt' } = req.body;
 
   if (!text || typeof text !== 'string' || !text.trim()) {
     return res.status(400).json({ error: 'Text parameter is required' });
@@ -1463,6 +1605,18 @@ app.post('/api/analyze-text-connectivity', requireAuth, async (req: Request, res
 
   const cleanedText = preprocessInputText(text);
 
+  // Check in-memory SHA-256 cache
+  const targetLang = (language || 'pt').toLowerCase();
+  const cacheKey = 'optimize:' + crypto.createHash('sha256').update(`${targetLang}:${taxonomy}:${contextStr}:${cleanedText}`).digest('hex');
+  const cached = aiGenerationCache.get(cacheKey);
+  if (cached && (Date.now() - cached.timestamp < CACHE_TTL_MS)) {
+    return res.json({
+      ...cached.result,
+      executionTimeMs: Date.now() - startTime,
+      cached: true
+    });
+  }
+
   // Filter out any connective or invalid entity words from input entities
   const validEntities = entities.filter((e: any) => e?.text && !isInvalidEntity(e.text));
   const validRelations = relations.filter(
@@ -1476,7 +1630,7 @@ app.post('/api/analyze-text-connectivity', requireAuth, async (req: Request, res
   const client = getGeminiClient();
 
   if (!client) {
-    const fallback = fallbackTextOptimization(cleanedText, validEntities, validRelations);
+    const fallback = fallbackTextOptimization(cleanedText, validEntities, validRelations, taxonomy, contextStr);
     return res.json({
       ...fallback,
       executionTimeMs: Date.now() - startTime,
@@ -1486,33 +1640,53 @@ app.post('/api/analyze-text-connectivity', requireAuth, async (req: Request, res
   }
 
   try {
-    const systemPrompt = `Você é um especialista sênior em Engenharia de Conhecimento, Linguística Computacional e Consultoria Editorial para Redatores e Copywriters.
+    const taxonomyDirectives = taxonomy === 'semantic_seo'
+      ? `TAXONOMIA ATIVA: 'semantic_seo' (SEO Semântico, Schema.org e Topic Clusters).
+Priorize e recomende ESTRITAMENTE predicados desta taxonomia:
+- 'subtopic_of', 'solves_problem', 'answers_intent', 'targets_audience', 'alternative_to', 'optimizes', 'component_of', 'uses_technology', 'executes_on', 'measures_metric', 'requires_condition', 'impacts'.`
+      : taxonomy === 'tacred'
+      ? `TAXONOMIA ATIVA: 'tacred' (Relações Corporativas e Biográficas).
+Priorize predicados TACRED: 'org:subsidiaries', 'org:founded_by', 'org:parents', 'per:title', 'per:employee_of', etc.`
+      : `TAXONOMIA ATIVA: 'wiki80' (Wikidata Geral).
+Priorize predicados Wikidata: 'subclass_of', 'part_of', 'instance_of', 'use', 'developer', 'manufacturer', 'owned_by', etc.`;
+
+    const systemPrompt = `Você é um especialista sênior em Engenharia de Conhecimento, Linguística Computacional, SEO Semântico e Consultoria Editorial para Redatores e Copywriters.
 Seu objetivo é analisar profundamente o texto do autor, suas entidades e relações, oferecendo um Diagnóstico Relacional de alta sensibilidade editorial e prática.
 
 DIRETIVA OBRIGATÓRIA DE CONTEXTO TEMÁTICO:
 - O autor definiu que este texto trata estritamente sobre: "${contextStr}".
-- Todas as sugestões de reescrita, diagnósticos de entidades isoladas e pontes relacionais sugeridas devem ser estritamente coerentes e ancoradas no nicho/tema "${contextStr}".
+- Todas as sugestões de reescrita, diagnósticos de entidades isoladas, lacunas tópicas e pontes relacionais sugeridas devem ser estritamente coerentes e ancoradas no nicho/tema "${contextStr}".
 
-DIRETIVA OBRIGATÓRIA DE IDIOMA:
-- TODO O DIAGNÓSTICO, EXPLICAÇÕES, SUGESTÕES E TEXTOS DEVEM SER GERADOS ESTRITAMENTE EM PORTUGUÊS DO BRASIL (PT-BR).
-- O campo "diagnosisSummary" DEVE ser 100% em Português do Brasil. NUNCA escreva este campo nem qualquer explicação em inglês.
+${taxonomyDirectives}
+
+${getLangInstruction(targetLang)}
 
 CONSULTORIA EDITORIAL PARA REDATORES E COPYWRITERS (FOCO EM QUEM ESCREVE):
 - Redatores e autores de background criativo frequentemente 'dobram a linguagem': usam metáforas, construções estilísticas, orações subordinadas e voz passiva para enriquecer a narrativa.
 - Nesse processo criativo natural, entidades fundamentais acabam ficando isoladas sem predicados relacionais formais que um motor de busca ou algoritmo de Grafo de Conhecimento possa extrair.
-- O seu papel NÃO é dar broncas acadêmicas ou conselhos genéricos ("conecte a entidade usando verbo ativo"), mas entregar SOLUÇÕES PRONTAS E ELEGANTE PARA O AUTOR.
+- O seu papel NÃO é dar broncas acadêmicas ou conselhos genéricos ("conecte a entidade usando verbo ativo"), mas entregar SOLUÇÕES PRONTAS E ELEGANTES PARA O AUTOR.
 
 DIRETRIZES PARA CADA ENTIDADE ISOLADA (isolatedEntities):
 Para CADA entidade que ficou sem conexão no grafo:
 1. "entity": Nome exato da entidade.
-2. "type": Tipo ontológico ('Technology', 'Concept', 'Organization', 'Person', etc.).
+2. "type": Tipo ontológico ('Technology', 'Concept', 'Organization', 'Person', 'Metric', 'Method', etc.).
 3. "contextSentence": A frase exata do texto de origem do autor onde essa entidade aparece.
 4. "targetEntityToConnect": A principal entidade central do texto com a qual esta entidade isolada deve se conectar.
-5. "recommendedRelation": O predicado ontológico ideal em snake_case (ex: "utiliza_tecnologia", "desenvolvido_por", "componente_de", "executa_em", "monitora").
+5. "recommendedRelation": O predicado ontológico ideal alinhado à taxonomia ativa (ex: "optimizes", "component_of", "solves_problem", "subtopic_of", "uses_technology").
 6. "reason": Explicação amigável em PT-BR do porquê a redação criativa atual a deixou desconectada sintaticamente.
 7. "editorialOption": Proposta de frase alternativa que PRESERVA o estilo autoral, o tom narrativo e a elegância criativa do autor, introduzindo a conexão com sutileza.
-8. "seoDirectOption": Proposta de frase direta no modelo SEO Semântico (Sujeito Canônico + Verbo Ativo + Objeto) para máxima extração pelo OpenNRE.
+8. "seoDirectOption": Proposta de frase direta no modelo SEO Semântico (Sujeito Canônico + Verbo Ativo + Objeto) para máxima extração pelo motor semântico.
 9. "suggestedFix": Resumo prático de 1 frase.
+
+DIRETIVA DE LACUNAS DE AUTORIDADE TEMÁTICA (topicalGaps):
+- Analise o nicho "${contextStr}" e identifique de 2 a 4 entidades, métricas ou conceitos canônicos essenciais que NÃO foram mencionados no texto, mas que são indispensáveis para garantir Autoridade Tópica Máxima (Topical Authority / Helpful Content).
+- Para cada lacuna forneça:
+  - "entity": Nome da entidade ausente.
+  - "type": Tipo ontológico ('Concept', 'Technology', 'Metric', 'Method', etc.).
+  - "importance": "Crítica" | "Alta" | "Média".
+  - "suggestedRelation": Predicado da taxonomia ativa para ligá-la ao tema central.
+  - "whyEssential": Explicação de por que a ausência desta entidade enfraquece o alcance semântico do artigo perante o Google e leitores.
+  - "suggestedSnippetToInsert": Uma frase pronta e natural sugerida para o redator adicionar ao artigo cobrindo o termo.
 
 REGRA INVIOLÁVEL PARA SUGESTÕES DE REESCRITA (rewriteSuggestions):
 - O campo "suggestedSnippet" NUNCA PODE SER IGUAL AO "originalSnippet". Proponha uma reescrita notavelmente diferente, mais ativa e rica em conexões. Se forem iguais, a resposta será inútil.
@@ -1536,6 +1710,16 @@ Retorne EXCLUSIVAMENTE um JSON válido com esta estrutura:
       "editorialOption": string,
       "seoDirectOption": string,
       "suggestedFix": string
+    }
+  ],
+  "topicalGaps": [
+    {
+      "entity": string,
+      "type": string,
+      "importance": "Crítica" | "Alta" | "Média",
+      "suggestedRelation": string,
+      "whyEssential": string,
+      "suggestedSnippetToInsert": string
     }
   ],
   "implicitOrWeakRelations": [
@@ -1574,7 +1758,7 @@ ${JSON.stringify(validRelations.map((r: any) => ({ head: r.headText, rel: r.rela
 Taxonomia: ${taxonomy}
 Contexto Temático do Documento: "${contextStr}"
 
-Analise a topologia do texto e forneça o Relatório de Consultoria Editorial e Otimização Semântica estritamente em Português do Brasil (PT-BR).`;
+Analise a topologia do texto e forneça o Relatório de Consultoria Editorial e Otimização Semântica de acordo com a diretiva de idioma fornecida.`;
 
     const { text: responseText, modelUsed: successfulModel } = await generateWithResilience(
       client,
@@ -1605,6 +1789,19 @@ Analise a topologia do texto e forneça o Relatório de Consultoria Editorial e 
         };
       });
 
+    // Post-process topicalGaps
+    const rawGaps = Array.isArray(parsed.topicalGaps) ? parsed.topicalGaps : [];
+    const sanitizedGaps = rawGaps
+      .filter((g: any) => g?.entity && !isInvalidEntity(String(g.entity)))
+      .map((g: any) => ({
+        entity: String(g.entity),
+        type: String(g.type || 'Concept'),
+        importance: ['Crítica', 'Alta', 'Média'].includes(g.importance) ? g.importance : 'Alta',
+        suggestedRelation: String(g.suggestedRelation || (taxonomy === 'semantic_seo' ? 'subtopic_of' : 'part_of')),
+        whyEssential: String(g.whyEssential || 'Fortalece a cobertura semântica e a autoridade tópica do artigo.'),
+        suggestedSnippetToInsert: String(g.suggestedSnippetToInsert || `A adoção de ${g.entity} consolida as bases de ${contextStr}.`)
+      }));
+
     // Post-process rewriteSuggestions to ensure suggestedSnippet is never identical to originalSnippet
     const rawRewrites = Array.isArray(parsed.rewriteSuggestions) ? parsed.rewriteSuggestions : [];
     const sanitizedRewrites = rawRewrites.map((rw: any) => {
@@ -1620,16 +1817,24 @@ Analise a topologia do texto e forneça o Relatório de Consultoria Editorial e 
       };
     });
 
-    return res.json({
+    const responsePayload = {
       ...parsed,
       isolatedEntities: sanitizedIsolated,
+      topicalGaps: sanitizedGaps,
       rewriteSuggestions: sanitizedRewrites,
       executionTimeMs: Date.now() - startTime,
       modelUsed: `${successfulModel} (Text Connectivity Optimizer)`
+    };
+
+    aiGenerationCache.set(cacheKey, {
+      result: responsePayload,
+      timestamp: Date.now()
     });
+
+    return res.json(responsePayload);
   } catch (err: any) {
     console.info('Notice in /api/analyze-text-connectivity: using heuristic fallback for editorial report.');
-    const fallback = fallbackTextOptimization(text, entities, relations);
+    const fallback = fallbackTextOptimization(text, entities, relations, taxonomy, contextStr);
     return res.json({
       ...fallback,
       executionTimeMs: Date.now() - startTime,

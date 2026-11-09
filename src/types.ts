@@ -6,6 +6,8 @@ export type EntityType =
   | 'Event'
   | 'Technology'
   | 'Concept'
+  | 'Metric'
+  | 'Method'
   | 'Date'
   | 'Country'
   | 'Work'
@@ -65,7 +67,7 @@ export interface ExtractionResponse {
   };
 }
 
-export type TaxonomyType = 'wiki80' | 'tacred' | 'fewrel' | 'semeval' | 'custom';
+export type TaxonomyType = 'semantic_seo' | 'wiki80' | 'tacred';
 
 export interface TaxonomyRelationDef {
   relation: string;
@@ -97,11 +99,21 @@ export interface IsolatedEntityDiagnostic {
   seoDirectOption?: string; // Reescrita semântica direta (sujeito + verbo ativo + objeto)
 }
 
+export interface TopicalGap {
+  entity: string;
+  type: string;
+  importance: 'Alta' | 'Média' | 'Crítica';
+  suggestedRelation: string;
+  whyEssential: string;
+  suggestedSnippetToInsert?: string;
+}
+
 export interface TextOptimizationAnalysis {
   connectivityScore: number; // 0 - 100
   connectivityLevel: 'Low' | 'Moderate' | 'Good' | 'High';
   diagnosisSummary: string;
   isolatedEntities: IsolatedEntityDiagnostic[];
+  topicalGaps?: TopicalGap[]; // Entidades e tópicos essenciais ausentes para autoridade temática
   implicitOrWeakRelations: Array<{
     headEntity: string;
     tailEntity: string;
@@ -145,17 +157,26 @@ export interface AccessKeyEntry {
 
 export type UserRole = 'admin' | 'client';
 export type UserStatus = 'active' | 'pending' | 'blocked' | 'expired';
-export type SubscriptionPlan = 'trial' | 'monthly' | 'annual' | 'lifetime';
+export type SubscriptionPlan = 'trial' | 'specialist' | 'agency' | 'enterprise' | 'monthly' | 'annual' | 'lifetime';
+
+export type SupportedLang = 'pt' | 'en' | 'es';
 
 export interface UserProfile {
   uid: string;
   email: string;
   displayName?: string;
+  photoURL?: string;
   role: UserRole;
   status: UserStatus;
   plan: SubscriptionPlan;
+  creditsBalance?: number;
+  creditsUsed?: number;
+  planExpiresAt?: string;
+  lastAppUsed?: string;
   createdAt: string;
+  lastLoginAt?: string;
   notes?: string;
   usageCount: number;
   updatedAt?: string;
+  uiLang?: SupportedLang;
 }

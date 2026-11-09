@@ -1,11 +1,148 @@
 import { TaxonomyInfo } from '../types';
 
 export const TAXONOMIES: Record<string, TaxonomyInfo> = {
+  semantic_seo: {
+    id: 'semantic_seo',
+    name: 'SEO Semântico & Topic Clusters (Schema.org / Artigos)',
+    author: 'Semântico Studio',
+    description: 'Ontologia desenhada especificamente para redação, arquitetura de conteúdo, clusters de tópicos (Pillar/Cluster), intenção de busca, E-E-A-T e otimização semântica.',
+    relationCount: 16,
+    defaultRelations: [
+      {
+        relation: 'subtopic_of',
+        label: 'Subtopic Of / Pillar-Cluster',
+        description: 'Entidade é um subtópico especializado ou conceito satélite de um tópico pilar principal',
+        headType: ['Concept', 'Technology', 'Method'],
+        tailType: ['Concept'],
+        example: 'Orçamento de Rastreamento é um subtópico fundamental de SEO Técnico.'
+      },
+      {
+        relation: 'optimizes',
+        label: 'Optimizes / Enhances',
+        description: 'Técnica, ferramenta ou elemento melhora diretamente uma métrica, posicionamento ou desempenho',
+        headType: ['Method', 'Technology', 'Concept'],
+        tailType: ['Metric', 'Concept', 'Technology'],
+        example: 'A minificação de scripts otimiza a métrica de LCP (Largest Contentful Paint).'
+      },
+      {
+        relation: 'impacts',
+        label: 'Impacts / Influences',
+        description: 'Entidade influencia, altera ou produz consequências diretas sobre o resultado',
+        headType: ['Concept', 'Technology', 'Metric', 'Event'],
+        tailType: ['Concept', 'Metric'],
+        example: 'A velocidade de carregamento da página impacta a taxa de conversão e a taxa de rejeição.'
+      },
+      {
+        relation: 'solves_problem',
+        label: 'Solves Problem / Pain Point',
+        description: 'Solução, ferramenta ou diretiva técnica resolve uma dor específica do usuário ou erro de rastreamento',
+        headType: ['Technology', 'Method', 'Product', 'Concept'],
+        tailType: ['Concept'],
+        example: 'A tag canonical resolve o problema de conteúdo duplicado entre URLs semelhantes.'
+      },
+      {
+        relation: 'answers_intent',
+        label: 'Answers Search Intent',
+        description: 'Conteúdo, seção ou resposta satisfaz uma intenção de busca específica (Informacional, Comercial, Transacional, Navegacional)',
+        headType: ['Concept', 'Product', 'Work'],
+        tailType: ['Concept'],
+        example: 'A tabela comparativa atende à intenção de busca comercial do leitor.'
+      },
+      {
+        relation: 'targets_audience',
+        label: 'Targets Audience / Persona',
+        description: 'Artigo ou solução é endereçado a uma persona, leitor ou público específico',
+        headType: ['Concept', 'Product', 'Work'],
+        tailType: ['Concept', 'Person', 'Organization'],
+        example: 'O guia avançado é direcionado a arquitetos de informação e engenheiros de dados.'
+      },
+      {
+        relation: 'measures',
+        label: 'Measures / Audits',
+        description: 'Ferramenta, auditoria ou indicador quantifica e avalia o estado do alvo',
+        headType: ['Technology', 'Product', 'Method'],
+        tailType: ['Metric', 'Concept', 'Technology'],
+        example: 'O Google Search Console mede a taxa de cliques (CTR) e erros de rastreamento.'
+      },
+      {
+        relation: 'configures',
+        label: 'Configures / Governs',
+        description: 'Arquivo, diretiva ou parâmetro governa o comportamento ou execução do sistema alvo',
+        headType: ['Technology', 'Product', 'Concept'],
+        tailType: ['Technology', 'Concept'],
+        example: 'O arquivo robots.txt configura o comportamento do Googlebot.'
+      },
+      {
+        relation: 'alternative_to',
+        label: 'Alternative To / Competitor',
+        description: 'Produto, ferramenta ou método concorre ou serve como alternativa direta ao alvo',
+        headType: ['Product', 'Technology', 'Method'],
+        tailType: ['Product', 'Technology', 'Method'],
+        example: 'O Matomo Analytics é uma alternativa focada em privacidade ao Google Analytics.'
+      },
+      {
+        relation: 'recommends',
+        label: 'Recommends / Endorses',
+        description: 'Conteúdo, especialista ou guia recomenda o uso de uma ferramenta, prática ou produto',
+        headType: ['Person', 'Organization', 'Work', 'Concept'],
+        tailType: ['Product', 'Technology', 'Method'],
+        example: 'O artigo recomenda o Screaming Frog para auditorias de URLs.'
+      },
+      {
+        relation: 'requires',
+        label: 'Requires / Prerequisite',
+        description: 'Estratégia ou processo depende obrigatoriamente do alvo como pré-requisito funcional',
+        headType: ['Method', 'Technology', 'Concept'],
+        tailType: ['Technology', 'Concept', 'Metric'],
+        example: 'A indexação em buscadores requer resposta de servidor com código HTTP 200.'
+      },
+      {
+        relation: 'component_of',
+        label: 'Component Of / Part Of',
+        description: 'Elemento compõe a estrutura, sintaxe ou arquitetura do alvo',
+        headType: ['Technology', 'Concept', 'Metric'],
+        tailType: ['Technology', 'Concept'],
+        example: 'O vocabulário Schema.org é um componente estrutural da Web Semântica.'
+      },
+      {
+        relation: 'enables',
+        label: 'Enables / Facilitates',
+        description: 'Entidade desbloqueia, viabiliza ou facilita o recurso ou resultado alvo',
+        headType: ['Technology', 'Concept', 'Method'],
+        tailType: ['Concept', 'Technology'],
+        example: 'A marcação JSON-LD habilita a exibição de Rich Snippets nas SERPs do Google.'
+      },
+      {
+        relation: 'defined_as',
+        label: 'Defined As / Characterized As',
+        description: 'Definição ontológica de um conceito, termo técnico ou padrão',
+        headType: ['Concept', 'Technology'],
+        tailType: ['Concept'],
+        example: 'O Crawl Budget é definido como o limite de requisições que o bot pode alocar ao site.'
+      },
+      {
+        relation: 'authored_by',
+        label: 'Authored By (E-E-A-T)',
+        description: 'Atribuição de autoria, autoridade ou criador de uma metodologia ou conteúdo',
+        headType: ['Work', 'Concept', 'Product'],
+        tailType: ['Person', 'Organization'],
+        example: 'As diretrizes do Google Search Essentials foram publicadas pelo Google Search Central.'
+      },
+      {
+        relation: 'uses_technology',
+        label: 'Uses Technology / Implements',
+        description: 'Sistema ou entidade emprega ou integra software, algoritmo ou protocolo',
+        headType: ['Technology', 'Organization', 'Person'],
+        tailType: ['Technology', 'Product'],
+        example: 'O crawler do Google utiliza o motor headless Chromium para renderização de páginas modernas.'
+      }
+    ]
+  },
   wiki80: {
     id: 'wiki80',
-    name: 'OpenNRE Wiki80 (Wikidata)',
-    author: 'THU-NLP / Han et al.',
-    description: '80 common relations derived from Wikidata and Wikipedia, standard in OpenNRE pretrained models (BERT, RoBERTa, CNN).',
+    name: 'Wikidata & Conhecimento Geral (Ontologia Aberta)',
+    author: 'THU-NLP / Wikidata',
+    description: '80 relações enciclopédicas fundamentadas na Wikidata e Wikipedia, padrão universal em ontologias de grafos.',
     relationCount: 80,
     defaultRelations: [
       {
@@ -65,6 +202,78 @@ export const TAXONOMIES: Record<string, TaxonomyInfo> = {
         example: 'Graph databases are a subclass of NoSQL database management systems.'
       },
       {
+        relation: 'part_of',
+        label: 'Part Of / Component Of',
+        description: 'Structural or functional component of another entity',
+        headType: ['Concept', 'Technology', 'Product'],
+        tailType: ['Concept', 'Technology', 'Product'],
+        example: 'The DOM is part of the HTML standard architecture.'
+      },
+      {
+        relation: 'optimizes',
+        label: 'Optimizes / Enhances',
+        description: 'Entity improves performance, efficiency, ranking, or quality of target',
+        headType: ['Technology', 'Concept', 'Product'],
+        tailType: ['Concept', 'Technology', 'Product'],
+        example: 'Compressing images optimizes the Largest Contentful Paint (LCP).'
+      },
+      {
+        relation: 'impacts',
+        label: 'Impacts / Influences',
+        description: 'Entity directly influences, alters, or has consequences on target',
+        headType: ['Concept', 'Technology', 'Event'],
+        tailType: ['Concept', 'Technology'],
+        example: 'Page load speed impacts user retention and conversion rates.'
+      },
+      {
+        relation: 'requires',
+        label: 'Requires / Depends On',
+        description: 'Entity depends on or requires target to execute or function properly',
+        headType: ['Technology', 'Concept'],
+        tailType: ['Technology', 'Concept'],
+        example: 'Server-side rendering requires a Node.js execution runtime.'
+      },
+      {
+        relation: 'measures',
+        label: 'Measures / Evaluates',
+        description: 'Metric, tool, or audit quantifies or evaluates target performance',
+        headType: ['Technology', 'Concept'],
+        tailType: ['Concept', 'Technology'],
+        example: 'PageSpeed Insights measures Core Web Vitals performance.'
+      },
+      {
+        relation: 'configures',
+        label: 'Configures / Governs',
+        description: 'File, directive, or parameter defines the behavior of target',
+        headType: ['Technology', 'Product', 'Concept'],
+        tailType: ['Technology', 'Concept'],
+        example: 'The robots.txt file configures Googlebot crawl behavior.'
+      },
+      {
+        relation: 'uses_technology',
+        label: 'Uses Technology / Implements',
+        description: 'System or entity employs or integrates target software or standard',
+        headType: ['Organization', 'Technology', 'Person'],
+        tailType: ['Technology', 'Product'],
+        example: 'The modern web crawler uses headless Chromium for JavaScript rendering.'
+      },
+      {
+        relation: 'enables',
+        label: 'Enables / Facilitates',
+        description: 'Entity unlocks, facilitates, or makes target process possible',
+        headType: ['Technology', 'Concept'],
+        tailType: ['Concept', 'Technology'],
+        example: 'Structured data enables rich snippets in Google search results.'
+      },
+      {
+        relation: 'monitors',
+        label: 'Monitors / Analyzes',
+        description: 'Tool or process observes, tracks, or inspects target system',
+        headType: ['Technology', 'Concept'],
+        tailType: ['Technology', 'Concept'],
+        example: 'Google Search Console monitors search index coverage and crawl errors.'
+      },
+      {
         relation: 'spouse',
         label: 'Spouse',
         description: 'Marriage or civil partnership between two persons',
@@ -108,9 +317,9 @@ export const TAXONOMIES: Record<string, TaxonomyInfo> = {
   },
   tacred: {
     id: 'tacred',
-    name: 'TACRED (Stanford NLP)',
-    author: 'Zhang et al. / Stanford',
-    description: '42 fine-grained relations focused on Person and Organization profiles from the TAC KBP challenges.',
+    name: 'Corporativo & Perfis de Pessoas (Stanford TACRED)',
+    author: 'Stanford NLP / TAC KBP',
+    description: '42 relações focadas em perfis corporativos, cargos de liderança, subsidiárias, histórico acadêmico e relações entre pessoas.',
     relationCount: 42,
     defaultRelations: [
       {
@@ -162,103 +371,5 @@ export const TAXONOMIES: Record<string, TaxonomyInfo> = {
         example: 'Sundar Pichai attended Stanford University and Wharton School.'
       }
     ]
-  },
-  fewrel: {
-    id: 'fewrel',
-    name: 'FewRel (Few-shot RE)',
-    author: 'THU-NLP / Han et al.',
-    description: '100 relation categories tailored for few-shot relation extraction across diverse domains.',
-    relationCount: 100,
-    defaultRelations: [
-      {
-        relation: 'P17_country',
-        label: 'Country (P17)',
-        description: 'Sovereign state of an entity',
-        headType: ['Location', 'Organization', 'Event'],
-        tailType: ['Country'],
-        example: 'The Amazon Rainforest is predominantly located in Brazil.'
-      },
-      {
-        relation: 'P495_country_of_origin',
-        label: 'Country of Origin (P495)',
-        description: 'Country where a creative work, organization, or brand originated',
-        headType: ['Product', 'Work', 'Organization'],
-        tailType: ['Country'],
-        example: 'Embraer is an aerospace manufacturer originating from Brazil.'
-      },
-      {
-        relation: 'P106_occupation',
-        label: 'Occupation (P106)',
-        description: 'Primary professional activity of a person',
-        headType: ['Person'],
-        tailType: ['Concept'],
-        example: 'Carl Sagan was an astronomer, astrophysicist, and author.'
-      },
-      {
-        relation: 'P1344_participant_in',
-        label: 'Participant In (P1344)',
-        description: 'Event or initiative in which the entity participated',
-        headType: ['Person', 'Organization', 'Country'],
-        tailType: ['Event'],
-        example: 'NASA participated in the Apollo 11 moon landing mission.'
-      }
-    ]
-  },
-  semeval: {
-    id: 'semeval',
-    name: 'SemEval-2010 Task 8',
-    author: 'Hendrickx et al.',
-    description: '9 classic semantic relations capturing abstract cognitive relationships between nominals.',
-    relationCount: 9,
-    defaultRelations: [
-      {
-        relation: 'Cause-Effect',
-        label: 'Cause-Effect',
-        description: 'An event or object causes an effect or outcome',
-        headType: ['Event', 'Concept'],
-        tailType: ['Event', 'Concept'],
-        example: 'The earthquake generated a massive tsunami along the coastline.'
-      },
-      {
-        relation: 'Component-Whole',
-        label: 'Component-Whole',
-        description: 'Head entity is an operational or physical component of Tail entity',
-        headType: ['Product', 'Technology'],
-        tailType: ['Product', 'Technology'],
-        example: 'The transformer neural network is a core component of Large Language Models.'
-      },
-      {
-        relation: 'Product-Producer',
-        label: 'Product-Producer',
-        description: 'Object or entity created by a maker or manufacturer',
-        headType: ['Product', 'Technology'],
-        tailType: ['Organization', 'Person'],
-        example: 'The Falcon 9 rocket is manufactured by SpaceX.'
-      },
-      {
-        relation: 'Entity-Destination',
-        label: 'Entity-Destination',
-        description: 'Entity moving towards or designated for a destination',
-        headType: ['Product', 'Person'],
-        tailType: ['Location'],
-        example: 'The Perseverance rover traveled across space to Mars.'
-      },
-      {
-        relation: 'Member-Collection',
-        label: 'Member-Collection',
-        description: 'Entity is a member of an aggregation, dataset, or collective group',
-        headType: ['Concept', 'Organization'],
-        tailType: ['Organization', 'Concept'],
-        example: 'Wiki80 is a dataset member of the OpenNRE benchmark suite.'
-      }
-    ]
-  },
-  custom: {
-    id: 'custom',
-    name: 'Custom / Open Schema',
-    author: 'User Defined Ontology',
-    description: 'Flexible domain-specific ontology for biomedical, legal, intelligence, or business knowledge graphs.',
-    relationCount: 0,
-    defaultRelations: []
   }
 };

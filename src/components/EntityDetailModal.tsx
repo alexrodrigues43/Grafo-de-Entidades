@@ -1,6 +1,7 @@
-import React from 'react';
-import { Entity, RelationTriplet } from '../types';
+import React, { useEffect } from 'react';
+import { Entity, RelationTriplet, SupportedLang } from '../types';
 import { getEntityColor } from '../utils/colors';
+import { getTranslations } from '../lib/i18n';
 import { ArrowRight, ArrowLeft, ExternalLink, ShieldCheck, Copy, Check, Tag, Globe, Sparkles } from 'lucide-react';
 
 interface EntityDetailModalProps {
@@ -8,15 +9,29 @@ interface EntityDetailModalProps {
   onClose: () => void;
   allRelations: RelationTriplet[];
   onSelectConnectedEntity: (entityId: string) => void;
+  uiLang?: SupportedLang;
 }
 
 export const EntityDetailModal: React.FC<EntityDetailModalProps> = ({
   entity,
   onClose,
   allRelations,
-  onSelectConnectedEntity
+  onSelectConnectedEntity,
+  uiLang = 'pt'
 }) => {
+  const t = getTranslations(uiLang);
   const [hasCopied, setHasCopied] = React.useState(false);
+
+  // Close modal on Escape
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && entity) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [entity, onClose]);
 
   if (!entity) return null;
 
@@ -34,7 +49,15 @@ export const EntityDetailModal: React.FC<EntityDetailModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="entity-detail-modal-title"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4"
+      onClick={e => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div className="bg-white rounded-xl border border-slate-200 shadow-xl max-w-lg w-full p-5 space-y-4 max-h-[90vh] overflow-y-auto">
         {/* Modal Header */}
         <div className="flex items-start justify-between border-b border-slate-100 pb-3">
@@ -42,21 +65,22 @@ export const EntityDetailModal: React.FC<EntityDetailModalProps> = ({
             <span
               className="w-3.5 h-3.5 rounded-full shrink-0"
               style={{ backgroundColor: color.hex }}
+              aria-hidden="true"
             />
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-base font-bold text-slate-900">{entity.text}</h3>
+                <h3 id="entity-detail-modal-title" className="text-base font-bold text-slate-900">{entity.text}</h3>
                 {entity.wikidataId && (
                   <a
                     href={`https://www.wikidata.org/wiki/${entity.wikidataId}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-[10px] text-emerald-700 font-mono font-medium hover:bg-emerald-100 transition-colors"
-                    title="View on Wikidata"
+                    className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-[10px] text-emerald-700 font-mono font-medium hover:bg-emerald-100 transition-colors min-h-[36px]"
+                    title={t.detailModal.viewWikidata}
                   >
-                    <Globe className="w-2.5 h-2.5" />
+                    <Globe className="w-3 h-3" aria-hidden="true" />
                     <span>{entity.wikidataId}</span>
-                    <ExternalLink className="w-2 h-2 ml-0.5 opacity-60" />
+                    <ExternalLink className="w-2.5 h-2.5 ml-0.5 opacity-60" aria-hidden="true" />
                   </a>
                 )}
               </div>
@@ -70,8 +94,10 @@ export const EntityDetailModal: React.FC<EntityDetailModalProps> = ({
           </div>
 
           <button
+            type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 text-sm p-1 rounded"
+            className="text-slate-400 hover:text-slate-600 text-sm p-1 rounded cursor-pointer min-h-[36px] min-w-[36px] flex items-center justify-center"
+            aria-label={t.detailModal.close}
           >
             ✕
           </button>
@@ -80,15 +106,15 @@ export const EntityDetailModal: React.FC<EntityDetailModalProps> = ({
         {/* Confidence & Degree */}
         <div className="grid grid-cols-2 gap-2 text-xs">
           <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200">
-            <span className="text-slate-500 block">Extraction Confidence</span>
+            <span className="text-slate-500 block">{t.detailModal.confidence}</span>
             <span className="font-bold text-emerald-600 mt-0.5 block">
               {((entity.confidence || 0.95) * 100).toFixed(0)}%
             </span>
           </div>
           <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-200">
-            <span className="text-slate-500 block">Total Connected Degree</span>
+            <span className="text-slate-500 block">{t.detailModal.degree}</span>
             <span className="font-bold text-blue-600 mt-0.5 block">
-              {outgoing.length + incoming.length} relations
+              {outgoing.length + incoming.length} {t.detailModal.relationsUnit}
             </span>
           </div>
         </div>
@@ -97,8 +123,8 @@ export const EntityDetailModal: React.FC<EntityDetailModalProps> = ({
         {entity.aliases && entity.aliases.length > 0 && (
           <div className="p-2.5 bg-slate-50/80 rounded-lg border border-slate-200 text-xs">
             <span className="text-slate-600 font-semibold block mb-1 flex items-center gap-1">
-              <Tag className="w-3 h-3 text-slate-500" />
-              Resolved Surface Forms & Mentions (Aliases):
+              <Tag className="w-3 h-3 text-slate-500" aria-hidden="true" />
+              {t.detailModal.aliasesTitle}
             </span>
             <div className="flex flex-wrap gap-1">
               {entity.aliases.map((alias, aIdx) => (
@@ -116,10 +142,10 @@ export const EntityDetailModal: React.FC<EntityDetailModalProps> = ({
         {/* Outgoing Relations */}
         <div className="space-y-1.5 text-xs">
           <span className="font-bold text-slate-700 block">
-            Outgoing Relations ({outgoing.length}):
+            {t.detailModal.outgoingTitle} ({outgoing.length})
           </span>
           {outgoing.length === 0 ? (
-            <p className="text-slate-400 text-xs italic">No outgoing relations.</p>
+            <p className="text-slate-400 text-xs italic">{t.detailModal.noOutgoing}</p>
           ) : (
             <div className="space-y-1.5 max-h-[140px] overflow-y-auto pr-1">
               {outgoing.map(r => (
@@ -132,10 +158,11 @@ export const EntityDetailModal: React.FC<EntityDetailModalProps> = ({
                       <span className="font-mono font-semibold text-slate-700 bg-white px-1.5 py-0.5 rounded border border-slate-200 text-[10px]">
                         {r.relation}
                       </span>
-                      <ArrowRight className="w-3 h-3 text-slate-400" />
+                      <ArrowRight className="w-3 h-3 text-slate-400" aria-hidden="true" />
                       <button
+                        type="button"
                         onClick={() => onSelectConnectedEntity(r.tailId)}
-                        className="font-semibold text-blue-600 hover:underline"
+                        className="font-semibold text-blue-600 hover:underline cursor-pointer min-h-[36px] flex items-center"
                       >
                         {r.tailText}
                       </button>
@@ -165,10 +192,10 @@ export const EntityDetailModal: React.FC<EntityDetailModalProps> = ({
         {/* Incoming Relations */}
         <div className="space-y-1.5 text-xs">
           <span className="font-bold text-slate-700 block">
-            Incoming Relations ({incoming.length}):
+            {t.detailModal.incomingTitle} ({incoming.length})
           </span>
           {incoming.length === 0 ? (
-            <p className="text-slate-400 text-xs italic">No incoming relations.</p>
+            <p className="text-slate-400 text-xs italic">{t.detailModal.noIncoming}</p>
           ) : (
             <div className="space-y-1.5 max-h-[140px] overflow-y-auto pr-1">
               {incoming.map(r => (
@@ -179,12 +206,13 @@ export const EntityDetailModal: React.FC<EntityDetailModalProps> = ({
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
                       <button
+                        type="button"
                         onClick={() => onSelectConnectedEntity(r.headId)}
-                        className="font-semibold text-blue-600 hover:underline"
+                        className="font-semibold text-blue-600 hover:underline cursor-pointer min-h-[36px] flex items-center"
                       >
                         {r.headText}
                       </button>
-                      <ArrowLeft className="w-3 h-3 text-slate-400" />
+                      <ArrowLeft className="w-3 h-3 text-slate-400" aria-hidden="true" />
                       <span className="font-mono font-semibold text-slate-700 bg-white px-1.5 py-0.5 rounded border border-slate-200 text-[10px]">
                         {r.relation}
                       </span>
@@ -214,17 +242,19 @@ export const EntityDetailModal: React.FC<EntityDetailModalProps> = ({
         {/* Quick Cypher Query Copy */}
         <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
           <button
+            type="button"
             onClick={handleCopyCypher}
-            className="flex items-center gap-1 text-slate-600 hover:text-blue-600 font-medium"
+            className="flex items-center gap-1.5 text-slate-600 hover:text-blue-600 font-medium cursor-pointer min-h-[44px]"
           >
-            {hasCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-            <span>{hasCopied ? 'Copied Cypher Query!' : 'Copy Neo4j Match Query'}</span>
+            {hasCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" aria-hidden="true" /> : <Copy className="w-3.5 h-3.5" aria-hidden="true" />}
+            <span>{hasCopied ? t.detailModal.copiedCypher : t.detailModal.copyCypher}</span>
           </button>
           <button
+            type="button"
             onClick={onClose}
-            className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md font-medium"
+            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-medium cursor-pointer min-h-[44px]"
           >
-            Close
+            {t.detailModal.close}
           </button>
         </div>
       </div>

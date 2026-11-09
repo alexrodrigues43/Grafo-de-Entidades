@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
-import { Entity, RelationTriplet, EntityType, RelationQualifier } from '../types';
+import { Entity, RelationTriplet, EntityType, RelationQualifier, SupportedLang } from '../types';
 import { getEntityColor, ENTITY_COLORS } from '../utils/colors';
+import { getTranslations } from '../lib/i18n';
 import {
   ZoomIn,
   ZoomOut,
@@ -27,6 +28,7 @@ interface GraphCanvasProps {
   onSelectEntity?: (entity: Entity) => void;
   onSelectRelation?: (relation: RelationTriplet) => void;
   selectedEntityId?: string | null;
+  uiLang?: SupportedLang;
 }
 
 interface SimNode extends d3.SimulationNodeDatum {
@@ -52,8 +54,10 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   relations,
   onSelectEntity,
   onSelectRelation,
-  selectedEntityId
+  selectedEntityId,
+  uiLang = 'pt'
 }) => {
+  const t = getTranslations(uiLang);
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const zoomBehaviorRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
@@ -219,14 +223,14 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       .attr('class', 'transition-colors duration-150 cursor-pointer')
       .on('mouseenter', (event, d) => {
         setHoveredLinkId(d.id);
-        d3.select(event.currentTarget)
+        d3.select(event.currentTarget as SVGElement)
           .attr('stroke', '#3b82f6')
           .attr('stroke-width', 3)
           .attr('marker-end', 'url(#arrowhead-highlight)');
       })
       .on('mouseleave', (event, d) => {
         setHoveredLinkId(null);
-        d3.select(event.currentTarget)
+        d3.select(event.currentTarget as SVGElement)
           .attr('stroke', '#cbd5e1')
           .attr('stroke-width', Math.max(1.5, d.confidence * 2.5))
           .attr('marker-end', 'url(#arrowhead-default)');
@@ -468,19 +472,21 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         className="absolute top-3 left-3 right-3 z-10 flex flex-wrap items-center justify-between gap-2 pointer-events-none"
       >
         {/* Search Box */}
-        <div className="pointer-events-auto flex items-center bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-200 shadow-xs text-xs w-64">
-          <Search className="w-3.5 h-3.5 text-slate-400 mr-2 shrink-0" />
+        <div className="pointer-events-auto flex items-center bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-200 shadow-xs text-xs w-64 min-h-[44px]">
+          <Search className="w-3.5 h-3.5 text-slate-400 mr-2 shrink-0" aria-hidden="true" />
           <input
             type="text"
-            placeholder="Buscar entidade no grafo..."
+            placeholder={t.graph.searchPlaceholder}
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             className="w-full bg-transparent focus:outline-none text-[#08121E] placeholder:text-slate-400 text-xs"
           />
           {searchQuery && (
             <button
+              type="button"
               onClick={() => setSearchQuery('')}
-              className="text-slate-400 hover:text-slate-600 ml-1 text-xs"
+              className="text-slate-400 hover:text-slate-600 ml-1 text-xs cursor-pointer min-h-[36px] min-w-[36px] flex items-center justify-center"
+              aria-label="Clear search"
             >
               ✕
             </button>
@@ -490,43 +496,48 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         {/* Action Controls */}
         <div className="pointer-events-auto flex items-center gap-1 bg-white/95 backdrop-blur-md p-1 rounded-full border border-slate-200 shadow-xs text-xs">
           <button
+            type="button"
             onClick={() => setShowEdgeLabels(!showEdgeLabels)}
-            title={showEdgeLabels ? 'Ocultar rótulos das arestas' : 'Mostrar rótulos das arestas'}
-            className={`p-1.5 rounded-full hover:bg-slate-100 transition-colors ${
+            title={showEdgeLabels ? t.graph.hideEdgeLabels : t.graph.showEdgeLabels}
+            className={`p-2 rounded-full hover:bg-slate-100 transition-colors cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center ${
               showEdgeLabels ? 'text-[#1E5E3A] font-semibold bg-[#1E5E3A]/10' : 'text-slate-500'
             }`}
           >
-            {showEdgeLabels ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+            {showEdgeLabels ? <Eye className="w-4 h-4" aria-hidden="true" /> : <EyeOff className="w-4 h-4" aria-hidden="true" />}
           </button>
           <div className="w-[1px] h-4 bg-slate-200" />
           <button
+            type="button"
             onClick={() => handleZoom(1.3)}
-            title="Aproximar (Zoom In)"
-            className="p-1.5 rounded-full text-slate-600 hover:bg-slate-100 transition-colors"
+            title={t.graph.zoomIn}
+            className="p-2 rounded-full text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
           >
-            <ZoomIn className="w-3.5 h-3.5" />
+            <ZoomIn className="w-4 h-4" aria-hidden="true" />
           </button>
           <button
+            type="button"
             onClick={() => handleZoom(0.7)}
-            title="Afastar (Zoom Out)"
-            className="p-1.5 rounded-full text-slate-600 hover:bg-slate-100 transition-colors"
+            title={t.graph.zoomOut}
+            className="p-2 rounded-full text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
           >
-            <ZoomOut className="w-3.5 h-3.5" />
+            <ZoomOut className="w-4 h-4" aria-hidden="true" />
           </button>
           <button
+            type="button"
             onClick={handleResetZoom}
-            title="Resetar Visualização"
-            className="p-1.5 rounded-full text-slate-600 hover:bg-slate-100 transition-colors"
+            title={t.graph.resetZoom}
+            className="p-2 rounded-full text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
           >
-            <RotateCcw className="w-3.5 h-3.5" />
+            <RotateCcw className="w-4 h-4" aria-hidden="true" />
           </button>
           <div className="w-[1px] h-4 bg-slate-200" />
           <button
+            type="button"
             onClick={handleDownloadSvg}
-            title="Exportar Grafo em SVG Vetorial"
-            className="flex items-center gap-1 px-3 py-1 rounded-full bg-[#08121E] hover:bg-[#1A2533] text-white text-xs font-semibold transition-colors"
+            title={t.graph.downloadSvg}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-[#08121E] hover:bg-[#1A2533] text-white text-xs font-semibold transition-colors cursor-pointer min-h-[44px]"
           >
-            <Download className="w-3.5 h-3.5 text-[#E5A93C]" />
+            <Download className="w-3.5 h-3.5 text-[#E5A93C]" aria-hidden="true" />
             <span>SVG</span>
           </button>
         </div>
@@ -542,7 +553,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
               <span className="font-semibold text-slate-800 truncate">{hoveredRel.headText}</span>
               <div className="flex items-center gap-1 text-blue-600 font-mono font-bold text-[10px] bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
                 <span>{hoveredRel.relation}</span>
-                <ArrowRight className="w-2.5 h-2.5" />
+                <ArrowRight className="w-2.5 h-2.5" aria-hidden="true" />
               </div>
               <span className="font-semibold text-slate-800 truncate">{hoveredRel.tailText}</span>
             </div>
@@ -569,10 +580,10 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
             <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1.5 pt-1 border-t border-slate-100">
               <span className="text-emerald-600 font-medium flex items-center gap-0.5">
-                <ShieldCheck className="w-3 h-3" />
-                {((hoveredRel.confidence || 0.95) * 100).toFixed(0)}% confidence
+                <ShieldCheck className="w-3 h-3" aria-hidden="true" />
+                {((hoveredRel.confidence || 0.95) * 100).toFixed(0)}% {t.graph.tooltipConfidence}
               </span>
-              <span>Click relation for details</span>
+              <span>{t.graph.tooltipClickRelation}</span>
             </div>
           </div>
         );
@@ -584,8 +595,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         className="absolute bottom-3 left-3 right-3 z-10 flex flex-wrap items-center gap-1.5 bg-white/95 backdrop-blur-md px-3 py-2 rounded-lg border border-slate-200 shadow-sm text-xs pointer-events-auto"
       >
         <div className="flex items-center gap-1 text-slate-500 font-medium mr-1 shrink-0">
-          <Filter className="w-3.5 h-3.5" />
-          <span>Entity Types:</span>
+          <Filter className="w-3.5 h-3.5" aria-hidden="true" />
+          <span>{t.graph.filterTypes}</span>
         </div>
         {availableTypes.map(type => {
           const color = getEntityColor(type);
@@ -594,8 +605,9 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
           return (
             <button
               key={type}
+              type="button"
               onClick={() => toggleTypeFilter(type)}
-              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-medium transition-all ${
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full border text-xs font-medium transition-all cursor-pointer min-h-[36px] ${
                 isSelected
                   ? 'ring-2 ring-blue-500 font-semibold'
                   : isFilteringActive
@@ -603,17 +615,18 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                   : 'opacity-90 hover:opacity-100'
               } ${color.badge}`}
             >
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: color.hex }} />
+              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: color.hex }} aria-hidden="true" />
               {type}
             </button>
           );
         })}
         {selectedTypeFilter.size > 0 && (
           <button
+            type="button"
             onClick={clearTypeFilter}
-            className="text-blue-600 hover:underline text-xs font-medium ml-auto"
+            className="text-blue-600 hover:underline text-xs font-medium ml-auto cursor-pointer min-h-[36px] px-2 flex items-center"
           >
-            Show All
+            {t.graph.showAll}
           </button>
         )}
       </div>
@@ -627,10 +640,10 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       {/* Empty State */}
       {entities.length === 0 && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50/80 text-slate-400 p-4">
-          <Layers className="w-12 h-12 mb-3 text-slate-300 stroke-[1.5]" />
-          <p className="text-sm font-semibold text-slate-700">Nenhum Grafo de Conhecimento gerado ainda</p>
+          <Layers className="w-12 h-12 mb-3 text-slate-300 stroke-[1.5]" aria-hidden="true" />
+          <p className="text-sm font-semibold text-slate-700">{t.graph.emptyGraphTitle}</p>
           <p className="text-xs text-slate-500 mt-1.5 max-w-md text-center leading-relaxed">
-            Cole o texto do seu post de blog ou faça upload de um arquivo (.txt / .md) acima e clique em &quot;Extrair Relações & Grafo&quot; para iniciar a extração.
+            {t.graph.emptyGraphSubtitle}
           </p>
         </div>
       )}

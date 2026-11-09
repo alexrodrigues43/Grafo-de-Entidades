@@ -254,6 +254,20 @@ npm start
 
 ---
 
+## 🌍 Internacionalização Profunda (i18n) & Padrão de Duplo Controle
+
+O Graph Studio oferece suporte multilíngue integral (**Português `pt`, Inglês `en` e Espanhol `es`**):
+
+1. **Duplo Controle de Idioma:**
+   - **`uiLang` (Interface):** Seletor acessível WCAG 2.2 AA no cabeçalho. Traduz toda a interface operacional: editor de texto, contadores, alertas de bloqueio de contexto, ferramentas do grafo D3.js, lista de triplas, diagnósticos editoriais e notificações toast.
+   - **`contentLang` (Conteúdo/Análise):** Define as regras ontológicas e prompts de extração no Gemini.
+2. **Navegação Institucional Dinâmica (`NAV_URLS`):**
+   - Links do Navbar e do Footer apontam dinamicamente para as páginas canônicas em inglês (`/en/`) e espanhol (`/es/`) no site corporativo `semantico.com.br`.
+3. **Vocabulário Ontológico Estrito:**
+   - Erradicação absoluta de "palavra-chave" / "keyword". Emprego exclusivo de *Entidades*, *Conceitos* e *Termos*.
+
+---
+
 ## 📄 Licença e Direitos
 
 Desenvolvido para **Semântico SEO** — *Significado e Sentido*.  

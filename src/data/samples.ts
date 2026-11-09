@@ -1,9 +1,11 @@
+import { TaxonomyType } from '../types';
+
 export interface TextSample {
   id: string;
   title: string;
   category: string;
   language: 'pt' | 'en';
-  taxonomy: 'wiki80' | 'tacred' | 'fewrel' | 'semeval' | 'custom';
+  taxonomy: TaxonomyType;
   text: string;
   description: string;
 }
@@ -11,12 +13,21 @@ export interface TextSample {
 export const TEXT_SAMPLES: TextSample[] = [
   {
     id: 'custom-empty',
-    title: 'Put your text here',
-    category: 'Custom Input',
+    title: 'Área Livre de Texto',
+    category: 'Entrada Direta',
     language: 'pt',
-    taxonomy: 'wiki80',
-    description: 'Empty workspace ready to paste or type your own custom text.',
+    taxonomy: 'semantic_seo',
+    description: 'Área em branco pronta para você colar ou redigir o seu próprio artigo.',
     text: ''
+  },
+  {
+    id: 'seo-crawl-budget',
+    title: 'SEO Técnico & Rastreamento (Googlebot, DOM & LCP)',
+    category: 'SEO & Conteúdo',
+    language: 'pt',
+    taxonomy: 'semantic_seo',
+    description: 'Relações de rastreamento, renderização DOM, robots.txt, Core Web Vitals e sitemaps.',
+    text: `O Googlebot rastreia a web para descobrir páginas novas e atualizadas. Ele utiliza o motor headless Chromium para renderizar aplicações em JavaScript e processar o DOM. Para controlar o orçamento de rastreamento (crawl budget), o webmaster configura diretivas no arquivo robots.txt e submete um sitemap XML no Google Search Console. Métricas como LCP e CLS influenciam a experiência da página e o ranqueamento orgânico.`
   },
   {
     id: 'opennre-thunlp',
@@ -50,7 +61,7 @@ export const TEXT_SAMPLES: TextSample[] = [
     title: 'Biomedical & Pharmacology Network',
     category: 'Saúde & Biologia',
     language: 'en',
-    taxonomy: 'custom',
+    taxonomy: 'wiki80',
     description: 'Drugs, target proteins, diseases, clinical trials and pharmaceutical manufacturers.',
     text: `Aspirin, developed by the German pharmaceutical company Bayer headquartered in Leverkusen, inhibits the cyclooxygenase enzyme (COX-2) to reduce inflammation and pain. Metformin is widely prescribed to treat Type 2 Diabetes and is manufactured by Merck Group based in Darmstadt, Germany. The World Health Organization (WHO), situated in Geneva, Switzerland, classified SARS-CoV-2 as the causative pathogen of COVID-19, which prompted Pfizer and BioNTech to collaboratively engineer the Comirnaty mRNA vaccine.`
   },

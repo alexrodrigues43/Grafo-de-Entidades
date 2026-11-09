@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { TAXONOMIES } from '../data/taxonomies';
-import { TaxonomyType, Entity } from '../types';
+import { TaxonomyType, Entity, SupportedLang } from '../types';
+import { getTranslations } from '../lib/i18n';
 import { getEntityColor } from '../utils/colors';
 import {
   Sparkles,
@@ -25,7 +26,8 @@ import {
   X,
   Lock,
   Unlock,
-  Target
+  Target,
+  Globe
 } from 'lucide-react';
 
 export const IDEAL_WORDS_LIMIT = 6000;
@@ -46,6 +48,9 @@ interface TextInputSectionProps {
   onExtract: () => void;
   isLoading: boolean;
   entities: Entity[];
+  contentLang?: SupportedLang;
+  onChangeContentLang?: (lang: SupportedLang) => void;
+  uiLang?: SupportedLang;
 }
 
 export const TextInputSection: React.FC<TextInputSectionProps> = ({
@@ -61,8 +66,12 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
   onChangeCustomRelations,
   onExtract,
   isLoading,
-  entities
+  entities,
+  contentLang = 'pt',
+  onChangeContentLang,
+  uiLang = 'pt'
 }) => {
+  const t = getTranslations(uiLang);
   const [activeTab, setActiveTab] = useState<'editor' | 'annotated'>('editor');
   const [newCustomRelation, setNewCustomRelation] = useState('');
   const [isDragOver, setIsDragOver] = useState(false);
@@ -159,7 +168,7 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
     if (entities.length === 0 || !text) {
       return (
         <div className="p-8 text-center text-slate-400 text-sm">
-          Execute a extração primeiro para visualizar as entidades anotadas diretamente no texto fonte.
+          {t.input.annotatedEmpty}
         </div>
       );
     }
@@ -202,7 +211,7 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
               <span
                 key={i}
                 className={`inline-flex items-center gap-1 mx-0.5 px-1.5 py-0.5 rounded border text-xs font-semibold ${color.badge}`}
-                title={`Tipo: ${p.entity.type} | Confiança: ${((p.entity.confidence || 0.95) * 100).toFixed(0)}%`}
+                title={`Type: ${p.entity.type} | Conf: ${((p.entity.confidence || 0.95) * 100).toFixed(0)}%`}
               >
                 {p.text}
                 <span className="text-[9px] uppercase tracking-wider font-bold opacity-75">
@@ -217,20 +226,28 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
     );
   };
 
+  const numberLocale = uiLang === 'pt' ? 'pt-BR' : uiLang === 'es' ? 'es-ES' : 'en-US';
+
+  const suggestionChips = uiLang === 'es'
+    ? ['SEO Semántico', 'Inteligencia Artificial & LLMs', 'Marketing de Contenidos', 'Arquitectura de Software', 'Salud & Medicina', 'Finanzas & Inversiones']
+    : uiLang === 'en'
+    ? ['Semantic SEO', 'Artificial Intelligence & LLMs', 'Content Marketing', 'Software Architecture', 'Healthcare & Medicine', 'Finance & Investments']
+    : ['SEO Semântico', 'Inteligência Artificial & LLMs', 'Marketing de Conteúdo', 'Arquitetura de Software', 'Saúde & Medicina', 'Finanças & Investimentos'];
+
   return (
     <div className="bg-white rounded-2xl border border-[#E5E7EB] shadow-xs p-5 sm:p-6 card-editorial-topbar space-y-5">
       {/* Header & Mode Selector */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-[#1E5E3A]/10 border border-[#1E5E3A]/20 flex items-center justify-center text-[#1E5E3A]">
-            <FileText className="w-4.5 h-4.5" />
+            <FileText className="w-4.5 h-4.5" aria-hidden="true" />
           </div>
           <div>
             <h2 className="font-serif text-lg font-bold text-[#08121E] tracking-tight">
-              Texto Fonte & Engenharia Semântica
+              {t.input.headerTitle}
             </h2>
             <p className="text-xs text-slate-500">
-              Insira o texto do seu artigo, página ou documento para mapeamento de entidades
+              {t.input.headerSubtitle}
             </p>
           </div>
         </div>
@@ -252,10 +269,10 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
             type="button"
             id="btn-upload-file"
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white hover:bg-slate-50 text-[#08121E] font-semibold text-xs border border-slate-200 transition-colors shadow-2xs cursor-pointer"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white hover:bg-slate-50 text-[#08121E] font-semibold text-xs border border-slate-200 transition-colors shadow-2xs cursor-pointer min-h-[44px]"
           >
-            <Upload className="w-3.5 h-3.5 text-[#1E5E3A]" />
-            <span>Carregar Arquivo (.txt / .md)</span>
+            <Upload className="w-3.5 h-3.5 text-[#1E5E3A]" aria-hidden="true" />
+            <span>{t.input.btnUpload}</span>
           </button>
         </div>
       </div>
@@ -264,8 +281,8 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
       {uploadedFileName && (
         <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center justify-between text-xs text-emerald-900 animate-fade-in">
           <div className="flex items-center gap-2 font-medium">
-            <FileCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>Arquivo carregado com sucesso:</span>
+            <FileCheck className="w-4 h-4 text-emerald-600 shrink-0" aria-hidden="true" />
+            <span>{t.input.uploadedSuccess}</span>
             <span className="font-bold font-mono px-1.5 py-0.5 bg-white rounded border border-emerald-300">
               {uploadedFileName}
             </span>
@@ -273,9 +290,9 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
           <button
             type="button"
             onClick={() => setUploadedFileName(null)}
-            className="text-emerald-700 hover:text-emerald-900 text-[11px] underline ml-2"
+            className="text-emerald-700 hover:text-emerald-900 text-[11px] underline ml-2 cursor-pointer"
           >
-            Dispensar aviso
+            {t.input.dismissNotice}
           </button>
         </div>
       )}
@@ -283,9 +300,9 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
       {/* File Upload Oversize Warning */}
       {fileLimitWarning && (
         <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2.5 text-xs text-red-900 animate-fade-in">
-          <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+          <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" aria-hidden="true" />
           <div className="flex-1">
-            <span className="font-bold block">Aviso de Arquivo Extenso</span>
+            <span className="font-bold block">{t.input.fileLimitTitle}</span>
             <span>{fileLimitWarning}</span>
           </div>
         </div>
@@ -295,29 +312,29 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
       <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
           <div className="flex items-center gap-1.5 font-semibold text-slate-700">
-            <Gauge className="w-3.5 h-3.5 text-slate-500" />
-            <span>Monitor de Volume & Qualidade Relacional:</span>
+            <Gauge className="w-3.5 h-3.5 text-slate-500" aria-hidden="true" />
+            <span>{t.input.monitorTitle}</span>
           </div>
 
           <div className="flex items-center gap-2">
             {isExceeded ? (
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-red-100 border border-red-300 text-red-800 text-[11px] font-bold animate-pulse">
-                <AlertCircle className="w-3 h-3 text-red-600" />
-                Limite de Segurança Excedido ({wordCount.toLocaleString('pt-BR')} / 15.000 palavras)
+                <AlertCircle className="w-3 h-3 text-red-600" aria-hidden="true" />
+                {t.input.monitorExceeded} ({wordCount.toLocaleString(numberLocale)} / 15.000 {t.input.wordsCount})
               </span>
             ) : isWarning ? (
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-100 border border-amber-300 text-amber-800 text-[11px] font-semibold">
-                <Info className="w-3 h-3 text-amber-600" />
-                Texto Extenso ({wordCount.toLocaleString('pt-BR')} / 15.000 palavras • {capacityPercent}%)
+                <Info className="w-3 h-3 text-amber-600" aria-hidden="true" />
+                {t.input.monitorWarning} ({wordCount.toLocaleString(numberLocale)} / 15.000 {t.input.wordsCount} • {capacityPercent}%)
               </span>
             ) : isIdeal ? (
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-100 border border-emerald-300 text-emerald-800 text-[11px] font-semibold">
-                <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                Capacidade Ideal ({wordCount.toLocaleString('pt-BR')} palavras • Qualidade Máxima)
+                <ShieldCheck className="w-3 h-3 text-emerald-600" aria-hidden="true" />
+                {t.input.monitorIdeal} ({wordCount.toLocaleString(numberLocale)} {t.input.wordsCount})
               </span>
             ) : (
               <span className="text-[11px] text-slate-400">
-                Máximo suportado: 15.000 palavras por envio
+                {t.input.monitorMaxSupported}
               </span>
             )}
           </div>
@@ -338,26 +355,25 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
         </div>
 
         <div className="flex items-center justify-between text-[10px] text-slate-400">
-          <span>0 palavras</span>
-          <span className="text-slate-500 font-medium">Ideal: até 6.000 palavras</span>
-          <span className={isExceeded ? 'text-red-600 font-bold' : ''}>Trava Máxima: 15.000 palavras</span>
+          <span>0 {t.input.wordsCount}</span>
+          <span className="text-slate-500 font-medium">{t.input.idealLimit}</span>
+          <span className={isExceeded ? 'text-red-600 font-bold' : ''}>{t.input.hardLimit}</span>
         </div>
       </div>
 
       {/* Safety Lock Alert Banner (When Exceeded) */}
       {isExceeded && (
         <div className="p-3.5 bg-red-50 border-2 border-red-300 rounded-xl flex items-start gap-3 text-xs text-red-900 animate-fade-in shadow-sm">
-          <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+          <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" aria-hidden="true" />
           <div className="space-y-1">
             <h4 className="font-bold text-red-800 text-sm">
-              Trava de Segurança Ativa: Limite de 15.000 Palavras Excedido
+              {t.input.lockTitle}
             </h4>
             <p className="text-red-700 leading-relaxed">
-              O texto inserido contém <strong>{wordCount.toLocaleString('pt-BR')} palavras</strong> ({charCount.toLocaleString('pt-BR')} caracteres).
-              Para evitar que o modelo sofra com perda de atenção no meio do texto (<em>Lost-in-the-Middle</em>) ou estoure o limite de saída de tokens JSON, o envio de textos acima de 15.000 palavras está <strong>bloqueado</strong>.
+              {t.input.lockBody} ({wordCount.toLocaleString(numberLocale)} {t.input.wordsCount}, {charCount.toLocaleString(numberLocale)} {t.input.charsCount}).
             </p>
             <p className="text-red-800 font-medium pt-0.5">
-              💡 <strong>Solução recomendada:</strong> Divida o documento em capítulos, tópicos ou seções menores para extrair grafos densos e de máxima precisão.
+              💡 {t.input.lockSolution}
             </p>
           </div>
         </div>
@@ -367,14 +383,49 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
       {isWarning && (
         <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between text-xs text-amber-900">
           <div className="flex items-center gap-2">
-            <Info className="w-4 h-4 text-amber-600 shrink-0" />
+            <Info className="w-4 h-4 text-amber-600 shrink-0" aria-hidden="true" />
             <span>
-              <strong>Texto Extenso ({wordCount.toLocaleString('pt-BR')} palavras):</strong> O processamento será realizado normalmente. Para densidade relacional máxima, textos de até 6.000 palavras são ideais.
+              <strong>{t.input.warningTitle} ({wordCount.toLocaleString(numberLocale)} {t.input.wordsCount}):</strong> {t.input.warningBody}
             </span>
           </div>
           <span className="text-[11px] font-mono font-bold text-amber-700 shrink-0 bg-amber-100 px-2 py-0.5 rounded ml-2">
-            {capacityPercent}% da cota
+            {capacityPercent}%
           </span>
+        </div>
+      )}
+
+      {/* Project Content Language Selector */}
+      {onChangeContentLang && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-white rounded-xl border border-slate-200 shadow-2xs">
+          <div className="flex items-center gap-2">
+            <Globe className="w-4 h-4 text-[#1E5E3A]" aria-hidden="true" />
+            <div>
+              <span className="text-xs font-bold text-[#08121E]">{t.projectLanguage.label}</span>
+              <p className="text-[11px] text-slate-500">{t.projectLanguage.hint}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5" role="group" aria-label={t.projectLanguage.label}>
+            {[
+              { id: 'pt' as const, label: t.projectLanguage.pt, flag: '🇧🇷' },
+              { id: 'en' as const, label: t.projectLanguage.en, flag: '🇺🇸' },
+              { id: 'es' as const, label: t.projectLanguage.es, flag: '🇪🇸' },
+            ].map(l => (
+              <button
+                key={l.id}
+                type="button"
+                onClick={() => onChangeContentLang(l.id)}
+                aria-pressed={contentLang === l.id}
+                className={`min-h-[44px] min-w-[44px] px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  contentLang === l.id
+                    ? 'bg-[#1E5E3A] text-white shadow-2xs'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                }`}
+              >
+                <span aria-hidden="true">{l.flag}</span>
+                <span>{l.label}</span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -390,22 +441,22 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
       >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 pb-2">
           <label htmlFor="domain-context-input" className="text-xs font-bold text-[#08121E] flex items-center gap-2">
-            <Compass className="w-4 h-4 text-[#E5A93C]" />
-            <span>Contexto Temático do Texto</span>
+            <Compass className="w-4 h-4 text-[#E5A93C]" aria-hidden="true" />
+            <span>{t.input.contextLabel}</span>
             {domainContext.trim() ? (
               <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 shrink-0">
-                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                Contexto Ativo
+                <CheckCircle2 className="w-3 h-3 text-emerald-600" aria-hidden="true" />
+                {t.input.contextActive}
               </span>
             ) : (
               <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200 shrink-0 animate-pulse">
-                <Lock className="w-3 h-3 text-rose-600" />
-                Condição Obrigatória
+                <Lock className="w-3 h-3 text-rose-600" aria-hidden="true" />
+                {t.input.contextRequired}
               </span>
             )}
           </label>
           <span className="text-[11px] text-slate-500">
-            Campo livre: ancora a análise no nicho para evitar entidades e verbos sem sentido
+            {t.input.contextHelp}
           </span>
         </div>
 
@@ -420,8 +471,8 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
                 setContextWarning(false);
               }
             }}
-            placeholder="Sobre o que seu texto trata? Ex: SEO para E-commerce, Inteligência Artificial, Arquitetura de Software..."
-            className={`w-full pl-3.5 pr-10 py-2.5 text-xs text-[#08121E] placeholder:text-slate-400 bg-white border rounded-lg focus:outline-none transition-all ${
+            placeholder={t.input.contextPlaceholder}
+            className={`w-full pl-3.5 pr-10 py-2.5 text-base sm:text-xs text-[#08121E] placeholder:text-slate-400 bg-white border rounded-lg focus:outline-none transition-all ${
               contextWarning
                 ? 'border-rose-500 ring-2 ring-rose-200'
                 : domainContext.trim()
@@ -438,7 +489,7 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer transition-colors"
               title="Limpar contexto"
             >
-              <X className="w-3.5 h-3.5" />
+              <X className="w-3.5 h-3.5" aria-hidden="true" />
             </button>
           )}
         </div>
@@ -446,18 +497,10 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
         {/* Quick Suggestion Chips for Fast Testing */}
         <div className="pt-2 flex flex-wrap items-center gap-1.5 text-xs">
           <span className="text-[11px] text-slate-500 font-medium mr-1 flex items-center gap-1">
-            <Target className="w-3 h-3 text-slate-400" />
-            Sugestões rápidas para testar:
+            <Target className="w-3 h-3 text-slate-400" aria-hidden="true" />
+            {t.input.contextQuickSuggestions}
           </span>
-          {[
-            'SEO para E-commerce',
-            'Inteligência Artificial & LLMs',
-            'Marketing de Conteúdo & Copy',
-            'Arquitetura de Software',
-            'Saúde & Medicina',
-            'Direito & Legislação',
-            'Finanças & Investimentos'
-          ].map(chip => (
+          {suggestionChips.map(chip => (
             <button
               key={chip}
               type="button"
@@ -465,7 +508,7 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
                 onChangeDomainContext(chip);
                 setContextWarning(false);
               }}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-medium border transition-all cursor-pointer ${
+              className={`px-2.5 py-1 rounded-md text-[11px] font-medium border transition-all cursor-pointer min-h-[36px] ${
                 domainContext.trim().toLowerCase() === chip.toLowerCase()
                   ? 'bg-[#1E5E3A] text-white border-[#1E5E3A] shadow-2xs font-semibold'
                   : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 shadow-2xs'
@@ -480,14 +523,14 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
         {contextWarning && (
           <div className="mt-3 p-3 rounded-lg bg-rose-50 border border-rose-300 text-xs text-rose-900 flex items-start gap-2.5 animate-fade-in shadow-2xs">
             <div className="w-5 h-5 rounded-full bg-rose-200 text-rose-800 flex items-center justify-center shrink-0 mt-0.5 font-bold">
-              <Lock className="w-3 h-3 text-rose-700" />
+              <Lock className="w-3 h-3 text-rose-700" aria-hidden="true" />
             </div>
             <div className="space-y-1 flex-1">
               <strong className="font-bold block text-rose-950">
-                ⚠️ Análise Travada: O contexto temático é condição indispensável para gerar a análise
+                ⚠️ {t.input.contextAlertTitle}
               </strong>
               <p className="text-rose-900 leading-relaxed">
-                Para que o modelo não mapeie entidades sem sentido ou capture termos aleatórios, ele precisa saber previamente sobre o que seu texto trata. Por favor, <strong>escreva livremente no campo acima</strong> ou clique em uma das sugestões para destravar a extração.
+                {t.input.contextAlertBody}
               </p>
             </div>
           </div>
@@ -500,46 +543,46 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('editor')}
-            className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 cursor-pointer min-h-[36px] ${
               activeTab === 'editor'
                 ? 'bg-white text-slate-900 shadow-sm font-semibold'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <AlignLeft className="w-3.5 h-3.5" />
-            <span>Editor de Texto</span>
+            <AlignLeft className="w-3.5 h-3.5" aria-hidden="true" />
+            <span>{t.input.tabEditor}</span>
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('annotated')}
-            className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 cursor-pointer min-h-[36px] ${
               activeTab === 'annotated'
                 ? 'bg-white text-slate-900 shadow-sm font-semibold'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <Layers className="w-3.5 h-3.5" />
-            <span>Entidades Destacadas {entities.length > 0 && `(${entities.length})`}</span>
+            <Layers className="w-3.5 h-3.5" aria-hidden="true" />
+            <span>{t.input.tabAnnotated} {entities.length > 0 && `(${entities.length})`}</span>
           </button>
         </div>
 
         {/* Dynamic Metrics */}
         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-          <span className="font-semibold text-slate-700">{wordCount}</span> palavras
+          <span className="font-semibold text-slate-700">{wordCount}</span> {t.input.wordsCount}
           <span>•</span>
-          <span>{charCount} caracteres</span>
+          <span>{charCount} {t.input.charsCount}</span>
           {paragraphCount > 1 && (
             <>
               <span>•</span>
-              <span>{paragraphCount} parágrafos</span>
+              <span>{paragraphCount} {t.input.paragraphsCount}</span>
             </>
           )}
           {wordCount > 50 && (
             <>
               <span>•</span>
               <span className="inline-flex items-center gap-1 text-slate-600">
-                <Clock className="w-3 h-3" />
-                ~{estimatedReadingTimeMin} min de leitura
+                <Clock className="w-3 h-3" aria-hidden="true" />
+                ~{estimatedReadingTimeMin} {t.input.readingTime}
               </span>
             </>
           )}
@@ -547,11 +590,11 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
             <button
               type="button"
               onClick={handleClear}
-              className="text-slate-400 hover:text-red-600 ml-2 flex items-center gap-1 transition-colors"
-              title="Limpar editor"
+              className="text-slate-400 hover:text-red-600 ml-2 flex items-center gap-1 transition-colors cursor-pointer min-h-[36px]"
+              title={t.input.btnClear}
             >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span className="text-[11px]">Limpar</span>
+              <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+              <span className="text-[11px]">{t.input.btnClear}</span>
             </button>
           )}
         </div>
@@ -579,22 +622,22 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
             rows={7}
             value={text}
             onChange={e => onChangeText(e.target.value)}
-            placeholder="Cole ou digite aqui o texto do seu post de blog, artigo, resumo de pesquisa ou documento. Suporta textos longos em Português, Inglês ou qualquer outro idioma..."
-            className="w-full p-4 text-sm text-slate-800 placeholder:text-slate-400 bg-transparent resize-y focus:outline-none font-sans leading-relaxed min-h-[160px]"
+            placeholder={t.input.textPlaceholder}
+            className="w-full p-4 text-base sm:text-sm text-slate-800 placeholder:text-slate-400 bg-transparent resize-y focus:outline-none font-sans leading-relaxed min-h-[160px]"
           />
 
           {/* Bottom helper bar inside textarea */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between px-4 py-2 bg-slate-100/80 border-t border-slate-200/80 rounded-b-xl text-xs text-slate-500 gap-2">
             <span className="text-[11px]">
-              Dica: Você pode arrastar e soltar arquivos <strong>.txt</strong> ou <strong>.md</strong> diretamente aqui.
+              {t.input.dragDropHint}
             </span>
             <div className="flex items-center gap-2">
               <span className="text-[11px] text-slate-400">
                 {text.trim().length === 0
-                  ? 'Aguardando texto...'
+                  ? t.input.waitingText
                   : isExceeded
-                  ? '⚠️ Limite de 15.000 palavras excedido'
-                  : 'Texto pronto para extração'}
+                  ? t.input.blockedReduce
+                  : t.input.readyText}
               </span>
             </div>
           </div>
@@ -613,7 +656,7 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
             htmlFor="taxonomy-select"
             className="text-xs font-bold text-slate-800 flex items-center justify-between"
           >
-            <span>Taxonomia Relacional</span>
+            <span>{t.input.taxonomyLabel}</span>
             <span className="text-[10px] text-[#590050] font-semibold">
               {selectedTaxonomyInfo.relationCount > 0
                 ? `${selectedTaxonomyInfo.relationCount} relações`
@@ -624,20 +667,18 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
             id="taxonomy-select"
             value={taxonomy}
             onChange={e => onChangeTaxonomy(e.target.value as TaxonomyType)}
-            className="px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#fdd910] focus:border-[#302c33]"
+            className="px-3 py-2 text-base sm:text-xs bg-white border border-slate-300 rounded-lg font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#fdd910] focus:border-[#302c33]"
           >
-            <option value="wiki80">OpenNRE Wiki80 (Wikidata / 80 relações)</option>
-            <option value="tacred">TACRED (Stanford NLP / 42 relações)</option>
-            <option value="fewrel">FewRel (Few-shot RE / 100 relações)</option>
-            <option value="semeval">SemEval-2010 Task 8 (9 relações clássicas)</option>
-            <option value="custom">Esquema Customizado / Relações Abertas</option>
+            <option value="semantic_seo">{t.input.taxonomyOptions.semantic_seo}</option>
+            <option value="wiki80">{t.input.taxonomyOptions.wiki80}</option>
+            <option value="tacred">{t.input.taxonomyOptions.tacred}</option>
           </select>
         </div>
 
         {/* Confidence Threshold Slider */}
         <div className="flex flex-col gap-1">
           <label className="text-xs font-bold text-slate-800 flex items-center justify-between">
-            <span>Limiar Mínimo de Confiança</span>
+            <span>{t.input.thresholdLabel}</span>
             <span className="text-xs font-mono font-bold text-[#590050] bg-[#590050]/10 px-1.5 py-0.5 rounded">
               {(confidenceThreshold * 100).toFixed(0)}%
             </span>
@@ -661,8 +702,8 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
             {!domainContext.trim() && text.trim().length > 0 && (
               <div className="flex items-center justify-between px-2 text-[10px] text-rose-700 font-semibold animate-pulse">
                 <span className="flex items-center gap-1">
-                  <Lock className="w-3 h-3 text-rose-600" />
-                  Análise travada: preencha o contexto
+                  <Lock className="w-3 h-3 text-rose-600" aria-hidden="true" />
+                  {t.input.lockActiveDefineContext}
                 </span>
                 <button
                   type="button"
@@ -673,7 +714,7 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
                     el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
                   }}
                 >
-                  Ir ao campo
+                  {t.input.goToField}
                 </button>
               </div>
             )}
@@ -682,7 +723,7 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
               type="button"
               onClick={handleExtractClick}
               disabled={isLoading || !text.trim() || isExceeded}
-              className={`w-full flex items-center justify-center gap-2 py-3 px-6 rounded-full font-bold text-xs shadow-xs transition-all cursor-pointer ${
+              className={`w-full min-h-[44px] flex items-center justify-center gap-2 py-3 px-6 rounded-full font-bold text-xs shadow-xs transition-all cursor-pointer ${
                 isLoading || !text.trim()
                   ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
                   : isExceeded
@@ -694,81 +735,29 @@ export const TextInputSection: React.FC<TextInputSectionProps> = ({
             >
               {isLoading ? (
                 <>
-                  <div className="w-4 h-4 border-2 border-[#08121E]/30 border-t-[#08121E] rounded-full animate-spin" />
-                  <span>Processando Extração & Grafo...</span>
+                  <div className="w-4 h-4 border-2 border-[#08121E]/30 border-t-[#08121E] rounded-full animate-spin" aria-hidden="true" />
+                  <span>{t.input.btnExtracting}</span>
                 </>
               ) : isExceeded ? (
                 <>
-                  <AlertCircle className="w-4 h-4 text-red-600" />
-                  <span>Bloqueado: Reduza o Texto (&le; 15k palavras)</span>
+                  <AlertCircle className="w-4 h-4 text-red-600" aria-hidden="true" />
+                  <span>{t.input.blockedReduce}</span>
                 </>
               ) : !domainContext.trim() && text.trim().length > 0 ? (
                 <>
-                  <Lock className="w-4 h-4 text-rose-600" />
-                  <span>Trava Ativa: Definir Contexto</span>
+                  <Lock className="w-4 h-4 text-rose-600" aria-hidden="true" />
+                  <span>{t.input.lockActiveDefineContext}</span>
                 </>
               ) : (
                 <>
-                  <Sparkles className="w-4 h-4 text-[#08121E]" />
-                  <span>Extrair Relações & Gerar Grafo</span>
+                  <Sparkles className="w-4 h-4 text-[#08121E]" aria-hidden="true" />
+                  <span>{t.input.btnExtract}</span>
                 </>
               )}
             </button>
           </div>
         </div>
       </div>
-
-      {/* Custom Relations Input (Conditional for 'custom' taxonomy) */}
-      {taxonomy === 'custom' && (
-        <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
-          <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
-            <Tag className="w-3.5 h-3.5 text-blue-600" />
-            <span>Relações Personalizadas do Domínio (Ontologia)</span>
-          </label>
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              placeholder="ex: desenvolve_tecnologia, lidera_projeto, cita_estudo, adquire"
-              value={newCustomRelation}
-              onChange={e => setNewCustomRelation(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  handleAddCustomRelation();
-                }
-              }}
-              className="flex-1 px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-md text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-            <button
-              type="button"
-              onClick={handleAddCustomRelation}
-              className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-md text-xs font-medium flex items-center gap-1 cursor-pointer"
-            >
-              <Plus className="w-3 h-3" />
-              Adicionar
-            </button>
-          </div>
-          {customRelations.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 pt-1">
-              {customRelations.map(rel => (
-                <span
-                  key={rel}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs font-medium"
-                >
-                  {rel}
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveCustomRelation(rel)}
-                    className="hover:text-blue-900 font-bold ml-0.5 cursor-pointer"
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 };

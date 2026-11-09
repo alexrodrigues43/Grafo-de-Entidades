@@ -1,140 +1,230 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from "react";
 import {
   X,
-  Lock,
   Mail,
-  KeyRound,
+  Lock,
   User,
   ArrowRight,
   AlertCircle,
-  CheckCircle2,
-  Sparkles,
-  ShieldCheck
-} from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
-import { SemanticoLogo } from './SemanticoLogo';
+  ShieldCheck,
+  Eye,
+  EyeOff
+} from "lucide-react";
+import {
+  loginWithGoogle,
+  loginWithGoogleRedirect,
+  loginWithEmail,
+  registerWithEmail
+} from "../lib/firebase";
+import { SemanticoLogo } from "./SemanticoLogo";
+import { useAuth } from "../context/AuthContext";
+import { UserProfile } from "../types";
 
-export const AuthModal: React.FC = () => {
+interface AuthModalProps {
+  isOpen?: boolean;
+  onClose?: () => void;
+  onSuccess?: (profile: UserProfile) => void;
+  initialMode?: "login" | "register";
+}
+
+export const AuthModal: React.FC<AuthModalProps> = ({
+  isOpen: propIsOpen,
+  onClose: propOnClose,
+  onSuccess: propOnSuccess,
+  initialMode: propInitialMode
+}) => {
   const {
     isAuthModalOpen,
-    closeAuthModal,
-    signInWithGoogle,
-    signInWithEmail,
-    signUpWithEmail,
-    resetPassword
+    authModalMode,
+    closeAuthModal
   } = useAuth();
 
-  const [mode, setMode] = useState<'login' | 'signup' | 'reset'>('login');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const isOpen = propIsOpen !== undefined ? propIsOpen : isAuthModalOpen;
+  const handleClose = propOnClose || closeAuthModal;
 
-  if (!isAuthModalOpen) return null;
+  const [mode, setMode] = useState<"login" | "register">(propInitialMode || authModalMode || "login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showRedirectFallback, setShowRedirectFallback] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setMode(propInitialMode || authModalMode || "login");
+      setErrorMessage(null);
+      setShowRedirectFallback(false);
+    }
+  }, [isOpen, propInitialMode, authModalMode]);
+
+  if (!isOpen) return null;
 
   const handleGoogleLogin = async () => {
-    setError(null);
-    setLoading(true);
+    setIsGoogleLoading(true);
+    setErrorMessage(null);
+    setShowRedirectFallback(false);
     try {
-      await signInWithGoogle();
-      closeAuthModal();
+      const profile = await loginWithGoogle();
+      if (propOnSuccess) propOnSuccess(profile);
+      handleClose();
     } catch (err: any) {
-      console.error('Google Sign-in error:', err);
-      setError(err?.message || 'Falha ao autenticar com o Google.');
+      console.error("Google Auth error:", err);
+      if (err.code === "auth/popup-closed-by-user") {
+        setErrorMessage("A janela de autenticação foi fechada antes de concluir o login.");
+        setShowRedirectFallback(true);
+      } else if (err.code === "auth/popup-blocked") {
+        setErrorMessage("O pop-up de login foi bloqueado pelo seu navegador.");
+        setShowRedirectFallback(true);
+      } else if (err.code === "auth/cancelled-popup-request") {
+        setErrorMessage("Requisição cancelada.");
+      } else {
+        setErrorMessage(err.message || "Erro ao conectar via Google. Tente novamente.");
+        setShowRedirectFallback(true);
+      }
     } finally {
-      setLoading(false);
+      setIsGoogleLoading(false);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
-    setSuccessMsg(null);
-    setLoading(true);
+    if (!email.trim() || !password.trim()) {
+      setErrorMessage("Por favor, preencha todos os campos obrigatórios.");
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
 
     try {
-      if (mode === 'login') {
-        await signInWithEmail(email.trim(), password);
-        closeAuthModal();
-      } else if (mode === 'signup') {
-        if (password.length < 6) {
-          throw new Error('A senha deve conter no mínimo 6 caracteres.');
-        }
-        await signUpWithEmail(email.trim(), password, name.trim());
-        closeAuthModal();
-      } else if (mode === 'reset') {
-        await resetPassword(email.trim());
-        setSuccessMsg('Instruções de recuperação enviadas para o seu e-mail!');
+      let profile: UserProfile;
+      if (mode === "login") {
+        profile = await loginWithEmail(email, password);
+      } else {
+        profile = await registerWithEmail(email, password, displayName);
       }
+      if (propOnSuccess) propOnSuccess(profile);
+      handleClose();
     } catch (err: any) {
-      console.error('Auth error:', err);
-      let msg = err?.message || 'Ocorreu um erro na autenticação.';
-      if (msg.includes('operation-not-allowed')) {
-        msg = 'O provedor de E-mail/Senha precisa ser habilitado no Console do Firebase. Como alternativa imediata, use o botão "Continuar com o Google" acima para entrar em 1 clique!';
-      } else if (msg.includes('user-not-found') || msg.includes('wrong-password') || msg.includes('invalid-credential')) {
-        msg = 'E-mail ou senha incorretos.';
-      } else if (msg.includes('email-already-in-use')) {
-        msg = 'Este e-mail já está cadastrado. Tente fazer login.';
-      } else if (msg.includes('invalid-email')) {
-        msg = 'Por favor, insira um e-mail válido.';
-      } else if (msg.includes('weak-password')) {
-        msg = 'A senha é muito fraca. Escolha uma senha com pelo menos 6 caracteres.';
-      } else if (msg.includes('popup-closed-by-user')) {
-        msg = 'A janela de autenticação do Google foi fechada antes de concluir o login.';
+      console.error("Auth error:", err);
+      if (
+        err.code === "auth/invalid-credential" ||
+        err.code === "auth/wrong-password" ||
+        err.code === "auth/user-not-found"
+      ) {
+        setErrorMessage("E-mail ou senha incorretos. Verifique suas credenciais.");
+      } else if (err.code === "auth/email-already-in-use") {
+        setErrorMessage("Este e-mail já está cadastrado. Tente fazer login.");
+      } else if (err.code === "auth/weak-password") {
+        setErrorMessage("A senha deve ter no mínimo 6 caracteres.");
+      } else if (err.code === "auth/invalid-email") {
+        setErrorMessage("Formato de e-mail inválido.");
+      } else {
+        setErrorMessage(err.message || "Ocorreu um erro na autenticação.");
       }
-      setError(msg);
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in font-sans">
-      <div
-        className="relative w-full max-w-md bg-white border border-[#E5E7EB] rounded-2xl shadow-2xl p-6 sm:p-8 text-[#08121E] overflow-hidden"
-        onClick={e => e.stopPropagation()}
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs animate-in fade-in duration-150">
+      <div 
+        className="bg-[#0f1117] border border-slate-800 text-slate-100 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden relative"
+        onClick={(e) => e.stopPropagation()}
       >
-        {/* Top Accent Bar */}
-        <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-[#1E5E3A] via-[#E5A93C] to-[#08121E]" />
-
         {/* Close Button */}
         <button
-          onClick={closeAuthModal}
-          className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-700 rounded-full hover:bg-slate-100 transition-colors"
+          onClick={handleClose}
+          className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
           title="Fechar"
         >
           <X className="w-5 h-5" />
         </button>
 
-        {/* Brand Header */}
-        <div className="text-center mb-6 space-y-2">
-          <div className="flex justify-center">
-            <SemanticoLogo variant="black" size="lg" showTagline={true} />
+        {/* Modal Header */}
+        <div className="p-6 pb-4 text-center border-b border-slate-800/80">
+          <div className="flex justify-center mb-3">
+            <SemanticoLogo variant="white" size="md" />
           </div>
-          <h2 className="font-serif text-xl sm:text-2xl font-bold tracking-tight text-[#08121E] mt-3">
-            {mode === 'login' && 'Acessar Semântico Graph Studio'}
-            {mode === 'signup' && 'Criar Conta de Assinante'}
-            {mode === 'reset' && 'Recuperar Senha'}
+          <h2 className="text-xl font-black tracking-tight text-white">
+            {mode === "login" ? "Entrar no Semântico" : "Criar sua Conta"}
           </h2>
-          <p className="text-xs text-slate-500">
-            {mode === 'login' && 'Entre com sua conta para desbloquear as ferramentas neurais.'}
-            {mode === 'signup' && 'Cadastre-se para solicitar liberação e acesso aos grafos semânticos.'}
-            {mode === 'reset' && 'Informe o seu e-mail para receber o link de redefinição de senha.'}
+          <p className="text-xs text-slate-400 mt-1 max-w-xs mx-auto">
+            {mode === "login" 
+              ? "Acesse sua rede semântica e ferramentas de IA ontológica" 
+              : "Cadastre-se para solicitar liberação do seu acesso à plataforma"}
           </p>
-        </div>
 
-        {/* Google 1-Click Login Button */}
-        {mode !== 'reset' && (
-          <div className="mb-5">
+          {/* Mode Switch Tabs */}
+          <div className="flex bg-slate-900/90 p-1 rounded-xl border border-slate-800 mt-5">
             <button
               type="button"
-              onClick={handleGoogleLogin}
-              disabled={loading}
-              className="w-full flex items-center justify-center gap-3 py-3 px-4 rounded-full bg-white hover:bg-slate-50 text-[#08121E] font-bold text-xs shadow-2xs border border-slate-300 transition-all active:scale-[0.99] disabled:opacity-60 cursor-pointer"
+              onClick={() => {
+                setMode("login");
+                setErrorMessage(null);
+              }}
+              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                mode === "login"
+                  ? "bg-[#fdd910] text-black shadow-sm"
+                  : "text-slate-400 hover:text-white"
+              }`}
             >
-              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+              Fazer Login
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMode("register");
+                setErrorMessage(null);
+              }}
+              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                mode === "register"
+                  ? "bg-[#fdd910] text-black shadow-sm"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              Criar Conta
+            </button>
+          </div>
+        </div>
+
+        {/* Form Body */}
+        <div className="p-6 pt-4 space-y-4">
+          {/* Error Banner */}
+          {errorMessage && (
+            <div className="p-3 bg-red-950/70 border border-red-800/80 rounded-xl space-y-2 text-xs text-red-200 animate-in fade-in">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                <span className="leading-relaxed">{errorMessage}</span>
+              </div>
+              {showRedirectFallback && (
+                <button
+                  type="button"
+                  onClick={() => loginWithGoogleRedirect()}
+                  className="w-full mt-1.5 py-1.5 px-3 bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg text-white font-semibold text-[11px] transition-colors flex items-center justify-center gap-1.5 cursor-pointer active:scale-98"
+                >
+                  <span>Entrar por Redirecionamento (Sem Pop-up)</span>
+                  <ArrowRight className="w-3 h-3 text-[#fdd910]" />
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Google 1-Click Login Button */}
+          <button
+            type="button"
+            onClick={handleGoogleLogin}
+            disabled={isGoogleLoading || isLoading}
+            className="w-full py-2.5 px-4 bg-white hover:bg-slate-100 text-slate-900 rounded-xl font-bold text-xs flex items-center justify-center gap-2.5 border border-slate-200 shadow-sm transition-all cursor-pointer disabled:opacity-50"
+          >
+            {isGoogleLoading ? (
+              <span className="w-4 h-4 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <svg className="w-4 h-4" viewBox="0 0 24 24">
                 <path
                   fill="#4285F4"
                   d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -152,167 +242,98 @@ export const AuthModal: React.FC = () => {
                   d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
                 />
               </svg>
-              <span>Continuar com o Google</span>
-            </button>
-
-            <div className="relative my-4">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-slate-200" />
-              </div>
-              <div className="relative flex justify-center text-[10px] uppercase">
-                <span className="bg-white px-2 text-slate-400 font-semibold">ou com e-mail</span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Error Alert */}
-        {error && (
-          <div className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2.5 text-xs text-rose-800">
-            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-            <p className="leading-relaxed">{error}</p>
-          </div>
-        )}
-
-        {/* Success Alert */}
-        {successMsg && (
-          <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start gap-2.5 text-xs text-emerald-800">
-            <CheckCircle2 className="w-4 h-4 text-[#1E5E3A] shrink-0 mt-0.5" />
-            <p className="leading-relaxed">{successMsg}</p>
-          </div>
-        )}
-
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-3.5">
-          {mode === 'signup' && (
-            <div className="space-y-1">
-              <label className="block text-[11px] font-bold text-slate-700">Nome Completo</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                  <User className="w-4 h-4" />
-                </div>
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                  placeholder="Seu nome ou da sua agência"
-                  className="w-full pl-9 pr-3 py-2.5 bg-[#FAF9F6] border border-slate-300 focus:border-[#08121E] focus:ring-1 focus:ring-[#08121E] rounded-xl text-xs text-[#08121E] placeholder-slate-400 focus:outline-none"
-                />
-              </div>
-            </div>
-          )}
-
-          <div className="space-y-1">
-            <label className="block text-[11px] font-bold text-slate-700">E-mail</label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                <Mail className="w-4 h-4" />
-              </div>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                placeholder="exemplo@email.com"
-                className="w-full pl-9 pr-3 py-2.5 bg-[#FAF9F6] border border-slate-300 focus:border-[#08121E] focus:ring-1 focus:ring-[#08121E] rounded-xl text-xs text-[#08121E] placeholder-slate-400 focus:outline-none"
-              />
-            </div>
-          </div>
-
-          {mode !== 'reset' && (
-            <div className="space-y-1">
-              <div className="flex items-center justify-between">
-                <label className="block text-[11px] font-bold text-slate-700">Senha</label>
-                {mode === 'login' && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setError(null);
-                      setMode('reset');
-                    }}
-                    className="text-[10px] text-[#1E5E3A] hover:underline font-semibold"
-                  >
-                    Esqueceu a senha?
-                  </button>
-                )}
-              </div>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                  <KeyRound className="w-4 h-4" />
-                </div>
-                <input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  placeholder="Mínimo 6 caracteres"
-                  className="w-full pl-9 pr-3 py-2.5 bg-[#FAF9F6] border border-slate-300 focus:border-[#08121E] focus:ring-1 focus:ring-[#08121E] rounded-xl text-xs text-[#08121E] placeholder-slate-400 focus:outline-none"
-                />
-              </div>
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-full bg-[#E5A93C] hover:bg-[#D99A2B] text-[#08121E] font-bold text-xs shadow-xs transition-all active:scale-[0.99] disabled:opacity-50 cursor-pointer mt-2"
-          >
-            {loading ? (
-              <>
-                <div className="w-4 h-4 border-2 border-[#08121E] border-t-transparent rounded-full animate-spin" />
-                <span>Processando...</span>
-              </>
-            ) : mode === 'login' ? (
-              <>
-                <span>Entrar no Studio</span>
-                <ArrowRight className="w-4 h-4" />
-              </>
-            ) : mode === 'signup' ? (
-              <>
-                <span>Cadastrar & Solicitar Acesso</span>
-                <Sparkles className="w-4 h-4" />
-              </>
-            ) : (
-              <>
-                <span>Enviar Link de Recuperação</span>
-                <ArrowRight className="w-4 h-4" />
-              </>
             )}
+            <span>Entrar com 1 clique via Google</span>
           </button>
-        </form>
 
-        {/* Switch Mode Footer */}
-        <div className="mt-5 pt-4 border-t border-slate-200 text-center text-xs text-slate-500">
-          {mode === 'login' ? (
-            <p>
-              Ainda não tem conta?{' '}
-              <button
-                type="button"
-                onClick={() => {
-                  setError(null);
-                  setMode('signup');
-                }}
-                className="text-[#1E5E3A] font-bold hover:underline"
-              >
-                Cadastre-se gratuitamente
-              </button>
-            </p>
-          ) : (
-            <p>
-              Já possui uma conta cadastrada?{' '}
-              <button
-                type="button"
-                onClick={() => {
-                  setError(null);
-                  setMode('login');
-                }}
-                className="text-[#1E5E3A] font-bold hover:underline"
-              >
-                Voltar para Login
-              </button>
-            </p>
-          )}
+          <div className="flex items-center gap-3 my-2">
+            <div className="flex-1 h-px bg-slate-800" />
+            <span className="text-[11px] text-slate-500 uppercase tracking-wider font-semibold">ou com e-mail</span>
+            <div className="flex-1 h-px bg-slate-800" />
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-3.5">
+            {mode === "register" && (
+              <div>
+                <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                  Seu Nome ou Empresa
+                </label>
+                <div className="relative">
+                  <User className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                  <input
+                    type="text"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    placeholder="Ex: Alex Rodrigues"
+                    className="w-full bg-[#0d0f12] border border-slate-700 rounded-xl pl-9 pr-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#fdd910]"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                E-mail
+              </label>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="seuemail@empresa.com"
+                  required
+                  className="w-full bg-[#0d0f12] border border-slate-700 rounded-xl pl-9 pr-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#fdd910]"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                Senha
+              </label>
+              <div className="relative">
+                <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Mínimo 6 caracteres"
+                  required
+                  className="w-full bg-[#0d0f12] border border-slate-700 rounded-xl pl-9 pr-10 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#fdd910]"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-2.5 text-slate-500 hover:text-slate-300 cursor-pointer"
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoading || isGoogleLoading}
+              className="w-full py-2.5 px-4 bg-[#fdd910] hover:bg-[#ffe30e] text-black rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-[#fdd910]/20 transition-all cursor-pointer disabled:opacity-50 mt-2"
+            >
+              {isLoading ? (
+                <span className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <>
+                  <span>{mode === "login" ? "Entrar na Plataforma" : "Cadastrar e Solicitar Acesso"}</span>
+                  <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
+                </>
+              )}
+            </button>
+          </form>
+
+          {/* Super Admin Tip */}
+          <div className="p-2.5 bg-slate-900/80 rounded-xl border border-slate-800 text-[11px] text-slate-400 flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-[#fdd910] shrink-0" />
+            <span>Super Administrador: o e-mail master é ativado com acesso vitalício ilimitado.</span>
+          </div>
         </div>
       </div>
     </div>

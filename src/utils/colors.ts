@@ -81,6 +81,20 @@ export const ENTITY_COLORS: Record<EntityType, TypeColorConfig> = {
     hex: '#E5A93C', // Warm Gold (Conceito B in screenshot)
     badge: 'bg-[#E5A93C]/20 text-[#92400E] border-[#E5A93C]/50'
   },
+  Metric: {
+    bg: 'bg-cyan-50',
+    text: 'text-[#0E7490]',
+    border: 'border-[#06B6D4]/40',
+    hex: '#0891B2', // Cyan / Metric
+    badge: 'bg-[#06B6D4]/15 text-[#0E7490] border-[#06B6D4]/30'
+  },
+  Method: {
+    bg: 'bg-violet-50',
+    text: 'text-[#6D28D9]',
+    border: 'border-[#8B5CF6]/40',
+    hex: '#7C3AED', // Violet / Method
+    badge: 'bg-[#8B5CF6]/15 text-[#6D28D9] border-[#8B5CF6]/30'
+  },
   Event: {
     bg: 'bg-orange-50',
     text: 'text-[#C2410C]',

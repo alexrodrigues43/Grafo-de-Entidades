@@ -14,6 +14,8 @@ import {
   db,
   googleProvider,
   syncUserProfile,
+  subscribeCentralWallet,
+  deductCredits,
   isSuperAdminEmail,
   testConnection,
   handleFirestoreError,
@@ -39,7 +41,8 @@ interface AuthContextType {
   openPaywall: (reason?: string) => void;
   closePaywall: () => void;
   isAuthModalOpen: boolean;
-  openAuthModal: () => void;
+  authModalMode: 'login' | 'register';
+  openAuthModal: (mode?: 'login' | 'register') => void;
   closeAuthModal: () => void;
   isAdminModalOpen: boolean;
   openAdminModal: () => void;
@@ -58,6 +61,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isPaywallOpen, setIsPaywallOpen] = useState(false);
   const [paywallReason, setPaywallReason] = useState('Esta funcionalidade é exclusiva para assinantes com acesso liberado.');
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authModalMode, setAuthModalMode] = useState<'login' | 'register'>('login');
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
 
   // Initialize connection probe on mount
@@ -78,25 +82,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const synced = await syncUserProfile(currentUser);
           setProfile(synced);
 
-          // Real-time listener on user profile document
-          const userDocRef = doc(db, 'users', currentUser.uid);
-          unsubscribeProfile = onSnapshot(
-            userDocRef,
-            docSnap => {
-              if (docSnap.exists()) {
-                const data = docSnap.data() as UserProfile;
-                setProfile(data);
-
-                // If paywall was open because of pending status and admin just approved, close paywall!
-                if (data.status === 'active' || data.role === 'admin') {
-                  setIsPaywallOpen(false);
-                }
-              }
-            },
-            error => {
-              handleFirestoreError(error, OperationType.GET, `users/${currentUser.uid}`);
+          // Escuta em tempo real (onSnapshot) na carteira central do usuário (semantico-suite-core)
+          unsubscribeProfile = subscribeCentralWallet(currentUser.uid, (data) => {
+            setProfile(data);
+            if ((data.status === 'active' || data.role === 'admin') && (data.creditsBalance ?? 0) > 0) {
+              setIsPaywallOpen(false);
             }
-          );
+          });
         } catch (err) {
           console.error('Error synchronizing user profile:', err);
         } finally {
@@ -194,30 +186,48 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsPaywallOpen(false);
   };
 
-  const openAuthModal = () => setIsAuthModalOpen(true);
+  const openAuthModal = (mode: 'login' | 'register' = 'login') => {
+    setAuthModalMode(mode);
+    setIsAuthModalOpen(true);
+  };
   const closeAuthModal = () => setIsAuthModalOpen(false);
 
   const openAdminModal = () => setIsAdminModalOpen(true);
   const closeAdminModal = () => setIsAdminModalOpen(false);
 
   /**
-   * Guards a key feature: if user is active subscriber or admin, executes action;
+   * Guards a key feature: verifies active subscriber and credit balance;
    * otherwise, displays the graceful paywall modal explaining access.
    */
-  const guardAction = (action: () => void, featureName = 'esta ferramenta'): boolean => {
-    if (isActiveSubscriber || isAdmin) {
+  const guardAction = (action: () => void, featureName = 'esta ferramenta', creditCost = 1): boolean => {
+    if (isAdmin) {
       action();
       return true;
     }
 
-    const reason = !user
-      ? `Para utilizar ${featureName}, é necessário estar conectado à sua conta de assinante da Semântico.`
-      : isPending
-      ? `Sua solicitação de acesso para ${featureName} está aguardando liberação da equipe.`
-      : `O seu acesso a ${featureName} está temporariamente bloqueado ou expirado. Entre em contato com a equipe para renovação.`;
+    if (!user) {
+      openPaywall(`Para utilizar ${featureName}, é necessário estar conectado à sua conta de assinante da Suíte Semântico.`);
+      return false;
+    }
 
-    openPaywall(reason);
-    return false;
+    if (profile?.status !== 'active') {
+      const reason = isPending
+        ? `Sua solicitação de acesso para ${featureName} está aguardando liberação da equipe.`
+        : `O seu acesso a ${featureName} está temporariamente bloqueado ou expirado. Entre em contato para renovação.`;
+      openPaywall(reason);
+      return false;
+    }
+
+    const currentBalance = profile?.creditsBalance ?? 0;
+    if (currentBalance < creditCost) {
+      openPaywall(`A ação "${featureName}" requer ${creditCost} crédito(s), mas seu saldo atual na carteira é de ${currentBalance} crédito(s).`);
+      return false;
+    }
+
+    // Debita atomicamente da carteira central
+    deductCredits(profile.uid, creditCost, featureName, profile.email).catch(console.warn);
+    action();
+    return true;
   };
 
   return (
@@ -240,6 +250,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         openPaywall,
         closePaywall,
         isAuthModalOpen,
+        authModalMode,
         openAuthModal,
         closeAuthModal,
         isAdminModalOpen,

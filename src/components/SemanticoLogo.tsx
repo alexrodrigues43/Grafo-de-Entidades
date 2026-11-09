@@ -1,9 +1,10 @@
 import React from 'react';
 
 interface SemanticoLogoProps {
-  variant?: 'black' | 'white';
+  variant?: 'black' | 'white' | 'dark' | 'light';
   className?: string;
   showTagline?: boolean;
+  showSubtitle?: boolean;
   size?: 'sm' | 'md' | 'lg' | 'xl';
 }
 
@@ -11,9 +12,11 @@ export const SemanticoLogo: React.FC<SemanticoLogoProps> = ({
   variant = 'black',
   className = '',
   showTagline = true,
+  showSubtitle,
   size = 'md'
 }) => {
-  const isWhite = variant === 'white';
+  const isWhite = variant === 'white' || variant === 'light';
+  const displayTagline = showSubtitle !== undefined ? showSubtitle : showTagline;
   const textColor = isWhite ? '#ffffff' : '#000000';
   const strokeColor = isWhite ? '#ffffff' : '#000000';
   const centerFill = isWhite ? '#302c33' : '#ffffff';
@@ -76,7 +79,7 @@ export const SemanticoLogo: React.FC<SemanticoLogoProps> = ({
         </g>
 
         {/* Yellow Tagline Banner "Significado e Sentido" */}
-        {showTagline && (
+        {displayTagline && (
           <g id="tagline-banner">
             <rect
               x="124"

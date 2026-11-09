@@ -1,0 +1,46 @@
+steps:
+  # 1. Compilar a imagem Docker multi-stage
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/semantico-graph-studio:$SHORT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/semantico-graph-studio:latest'
+      - '.'
+
+  # 2. Publicar a imagem no Artifact / Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/semantico-graph-studio:latest'
+
+  # 3. Executar o deploy no Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'semantico-graph-studio'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/semantico-graph-studio:latest'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--memory'
+      - '2Gi'
+      - '--cpu'
+      - '2'
+      - '--timeout'
+      - '300'
+      - '--set-env-vars'
+      - 'NODE_ENV=production,DEFAULT_MODEL=gemini-3.8-flash'
+
+images:
+  - 'gcr.io/$PROJECT_ID/semantico-graph-studio:latest'
+  - 'gcr.io/$PROJECT_ID/semantico-graph-studio:$SHORT_SHA'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
